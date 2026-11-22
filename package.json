@@ -9,7 +9,8 @@
     "test:rpc": "node test/rpc.test.mjs && node test/rpc-strip.test.mjs",
     "replay": "node --experimental-strip-types scripts/replay.ts",
     "mutate": "node bin/mutate.mjs",
-    "check:rules": "node --experimental-strip-types scripts/check-rules-coverage.mjs"
+    "check:rules": "node --experimental-strip-types scripts/check-rules-coverage.mjs",
+    "check:docs": "node scripts/check-doc-accuracy.mjs"
   },
   "pi": {
     "extensions": [
