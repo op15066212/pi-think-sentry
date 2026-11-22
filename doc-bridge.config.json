@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "corpus": {
+    "agent": {
+      "root": "docs/for-agents"
+    }
+  },
+  "routing": {
+    "options": {
+      "ownership": {
+        "think-sentry": {
+          "path": ".",
+          "purpose": "思考链哨兵：dup / lang 判据 + 机制约束，判决写 ledger。",
+          "checks": [
+            "npm test",
+            "node --experimental-strip-types scripts/check-rules-coverage.mjs"
+          ],
+          "agentDoc": "docs/for-agents/think-sentry.md"
+        }
+      }
+    }
+  },
+  "gates": {
+    "preset": "minimal"
+  }
+}

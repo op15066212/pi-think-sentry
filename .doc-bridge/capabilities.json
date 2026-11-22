@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "type": "doc-bridge-capabilities",
+  "package": "@agentskit/doc-bridge",
+  "version": "2.6.0",
+  "project": {
+    "name": "pi-think-sentry",
+    "root": "."
+  },
+  "contentHash": "12e059ce0f9165dc4327b00c79a96167b0dff2f6af7069323e814639c4cb390c",
+  "artifacts": {
+    "index": ".doc-bridge/index.json",
+    "llmsTxt": "llms.txt"
+  },
+  "capabilities": [
+    "index",
+    "query",
+    "search",
+    "agent-handoff",
+    "gates",
+    "mcp"
+  ],
+  "surfaces": {
+    "cli": {
+      "bin": "ak-docs",
+      "defaultFormat": "json"
+    },
+    "mcp": {
+      "enabled": true,
+      "tools": [
+        "handoff.resolve",
+        "doc.search",
+        "doc.get",
+        "gate.status",
+        "retriever.query",
+        "memory.classify",
+        "memory.promoteDraft",
+        "registry.topology",
+        "docbridge.snapshot",
+        "docbridge.report",
+        "docbridge.diagnostics",
+        "docbridge.relations",
+        "docbridge.run",
+        "docbridge.proposals",
+        "knowledge.search",
+        "knowledge.lookup",
+        "knowledge.decision",
+        "knowledge.concept",
+        "knowledge.whyChanged"
+      ],
+      "transport": "stdio"
+    }
+  }
+}
