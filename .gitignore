@@ -1,1 +1,4 @@
 node_modules/
+
+# 运行态：每次判决都写，不是资产（R 类）。
+state.json
