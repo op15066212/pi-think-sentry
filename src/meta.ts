@@ -22,6 +22,7 @@ export interface Rule {
 
 export const RULES: readonly Rule[] = [
   {
+id: "dup", kind: "verdict", module: "features/dup.ts",
     prop: "同一行出现次数 ≥ dup.min 时判红",
     形成: "dup.min 在 src/defaults.ts（默认 4）",
     引入: "judges.ts 的 dup 判据；npm test 期望 rc=0",
@@ -29,6 +30,7 @@ export const RULES: readonly Rule[] = [
     反例: "四行都是「做。」：min=4 时判红",
   },
   {
+id: "lang", kind: "verdict", module: "features/lang.ts",
     prop: "非目标语言的行数 > 目标语言的行数时判红",
     形成: "lang.dir 在 config.ts，围栏与缩进不计",
     引入: "judges.ts 的 lang 判据；npm test 期望 rc=0",
@@ -36,6 +38,7 @@ export const RULES: readonly Rule[] = [
     反例: "整块英文思考、中文只有一行",
   },
   {
+id: "inject-thinking-only", kind: "mechanism", module: "features/inject.ts",
     prop: "只对 type=thinking 的块动手，别的块原样返回",
     形成: "src/features/inject.ts 与 strip.ts 的 c.type 判断",
     引入: "npm test 的形状用例；期望 rc=0",
@@ -43,6 +46,7 @@ export const RULES: readonly Rule[] = [
     反例: "往 text 块注入提示——正文被污染，用户直接看见",
   },
   {
+id: "intercept-en-only", kind: "mechanism", module: "features/intercept.ts",
     prop: "拦截只在 dir === \"en\" 时生效",
     形成: "src/features/intercept.ts 的 SAY_LANG",
     引入: "npm test 的拦截用例；期望 rc=0",
@@ -50,6 +54,7 @@ export const RULES: readonly Rule[] = [
     反例: "不看 dir 就拦：中文思考被当成英文误判",
   },
   {
+id: "strip-empty", kind: "mechanism", module: "features/strip.ts",
     prop: "没有可剥的片段时原样返回，不制造空补丁",
     形成: "src/features/strip.ts 的 want.length 短路",
     引入: "npm test：want=[] 时 content 不变、cleaned=false",
@@ -57,6 +62,7 @@ export const RULES: readonly Rule[] = [
     反例: "无判定也返回新数组——下游以为改过，日志里多一条空补丁",
   },
   {
+id: "binding-anthropic", kind: "mechanism", module: "features/binding.ts",
     prop: "anthropic / bedrock 系 provider 不抓 thinking（它们不暴露）",
     形成: "src/features/binding.ts 的 detectBinding",
     引入: "npm test 的绑定用例；期望 rc=0",
