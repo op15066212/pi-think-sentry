@@ -1,0 +1,57 @@
+judges.ts 无全局了。
+
+现在改 index.ts：
+1. import：加 `judgeCfg, JudgeCfg`（type）
+2. `let jcfg: JudgeCfg = judgeCfg();`
+3. `refresh()` 里 `jcfg = judgeCfg({...})`
+4. 两处 `judgeThinking(...)` 传 `jcfg`
+
+还有 features：dup.ts / lang.ts 删 setter 调用；inject.ts 删 setSelfCheck；template.ts 删。
+
+index.ts 的 refresh：
+
+```ts
+const refresh = () => {
+  const m = statStamp();
+  if (m === cfgStamp && cfg) return cfg;
+  cfg = readConfig();
+  cfgStamp = m;
+  // 判据的配置与配置对象同源：一次 refresh 只构建一次，message_update 直接用缓存。
+  jcfg = judgeCfg({
+    dupOn: cfg.dup.on, dupMin: cfg.dup.min,
+    langOn: cfg.lang.on, langDir: cfg.lang.dir,
+    skip: cfg.inject.on ? cfg.inject.text : "",
+  });
+  trace("hook", { h: "config", reload: true, stamp: m });
+  return cfg;
+};
+```
+
+install 里也要初始化：`cfg = readConfig(); cfgStamp = statStamp();` 之后加 jcfg 构建。
+
+抽一个 `applyCfg()`：
+```ts
+const applyCfg = (c: any) => {
+  cfg = c;
+  jcfg = judgeCfg({...});
+  return c;
+};
+```
+然后 install 与 refresh 都用它。
+
+写。
+
+features：
+- dup.ts: 删 `setDupEnabled, setDupMin` import 与调用，保留 `DUP_MIN`
+- lang.ts: 删 `setLangEnabled, setLangDir` import 与调用
+- inject.ts: 删 `setSelfCheck` import 与调用
+- template.ts: 删文件（先确认无其他引用）
+
+测试：
+- guard.test.ts: `setSelfCheck(TPL)` → 传 cfg；`setSelfCheck("")` → 删（默认）
+- strip.test.ts: `gate(t)` 简化；`setDupMin(3)` 删；`setDupEnabled(false)` → 传 cfg
+- threshold.test.ts: `setDupMin("2")` → 改断言
+
+做 index.ts 与 features，然后跑测试看红在哪，再修测试。
+
+写。

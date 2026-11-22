@@ -1,0 +1,22 @@
+{
+  "name": "pi-think-sentry",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "pi 扩展：判据只有两条（同一行复诵、思考的语言方向）。判红了在工具调用前拦下，轮末按判据给的行号删重复行，位置看不见时保持上一次判决。",
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "test:rpc": "node test/rpc.test.mjs && node test/rpc-strip.test.mjs",
+    "replay": "node --experimental-strip-types scripts/replay.ts",
+    "mutate": "node bin/mutate.mjs"
+  },
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2"
+  }
+}

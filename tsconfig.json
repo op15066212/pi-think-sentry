@@ -1,0 +1,18 @@
+{
+  // 为什么需要这个文件（R9 第三版，6e8dd769 指出的）：
+  // 此前没有 tsconfig，`npx tsc --noEmit` 用默认配置扫目录——没有 strict、没有 node 类型、
+  // 也没有声明哪些文件该被检查。判据是空的：谁把 noImplicitAny 打开都不知道。
+  // 更要紧的是我读 rc 的方式一直是错的：`npx tsc --noEmit | head -5; echo $?` 拿到的是 head 的
+  // 退出码，恒 0。这是「管道末端 rc 是 tail 的」那条纪律，我自己写在规则里，自己犯了。
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"]
+}
