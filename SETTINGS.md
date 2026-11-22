@@ -1,122 +1,96 @@
 # 设置
 
-一个文件：插件目录下的 `settings.json`。第一次启动时自动生成，之后不再被覆盖。
+一个文件：插件目录下的 `settings.json`。第一次启动时自动生成，之后不再被覆盖。改完立即生效，不用重启。
 
-六个模块各有一段配置。**其中五个有开关，`binding` 没有**——它由 provider/api 名字自动判定，没有人会想手动开它。改完立即生效，不用重启。
-
-## 默认内容
+## 全文
 
 ```json
 {
   "intercept": { "on": true },
-  "dup":       { "on": true, "min": 3 },
+  "dup":       { "on": true, "min": 4 },
   "lang":      { "on": true, "dir": "zh" },
   "strip":     { "on": true, "min": 3 },
-  "inject":    { "on": true, "text": "" }
+  "inject":    { "on": true, "texts": { "dup": "", "lang": "", "clean": "" } },
+  "binding":   { "allowGateway": false }
 }
 ```
 
+命令：`/think-sentry` 看全部状态；`/think-sentry dup min 5` 改一个值。写不认识的值会被拒绝并说明，不会静默兜底。
 
-## 判据（依赖类型理论）
+## 六个模块，逐个解释
 
-配置不生效是这类扩展最难查的故障：键填错了不报错，只是永远不生效。所以每个键都要有一条能红的判据。
+### intercept · 拦截
+
+| 键 | 默认 | 什么时候改 |
+| --- | --- | --- |
+| `on` | `true` | 只想看判决不想让它拦工具调用时设 `false` |
+
+判到不合格时挡住这一轮的工具调用。没有别的参数。
+
+### dup · 重复行守护
+
+| 键 | 默认 | 什么时候改 |
+| --- | --- | --- |
+| `on` | `true` | 关掉后同一条重复行不再判红 |
+| `min` | `4` | 同一行出现几次算「复诵」。整块短、句式机械的对话把 `min` 调高；要更严就调低 |
+
+判据入口是 `judges.ts` 的 `dupJudge`，按「vote 行」计数：围栏内、缩进块、空行不计。
+
+```bash
+grep -n '"min"' src/defaults.ts      # 默认值以这里为准，不以文档为准
+npm test                              # rc=0
+```
+
+### lang · 语言守护
+
+| 键 | 默认 | 什么时候改 |
+| --- | --- | --- |
+| `on` | `true` | 关掉后不再判语言 |
+| `dir` | `"zh"` | 目标语言。写 `"en"` 时判的是「中文过多」，方向整个反过来 |
+
+判据入口是 `judges.ts` 的 `langJudge`。先剥掉围栏、行内代码、公式、URL、盘符路径，再看非目标语言的行数是否多于目标语言的行数。
+
+### strip · 删重复行
+
+| 键 | 默认 | 什么时候改 |
+| --- | --- | --- |
+| `on` | `true` | 只想要判决不要删行时设 `false` |
+| `min` | `3` | 删行自己的门槛，与 `dup.min` 分开。设成比 `dup.min` 小**不生效**——判据没认定的行没有依据删 |
+
+`strip` 自己不判，只用判据已经算好的行号（`ev.dups` 里每组第三项），按行号从后往前删，位移不会串。
+
+### inject · 追加提示
+
+| 键 | 默认 | 什么时候改 |
+| --- | --- | --- |
+| `on` | `true` | 不想在 thinking 块后追加提示时设 `false` |
+| `texts.dup` | `""` | `dup` 判红时追加的那段话 |
+| `texts.lang` | `""` | `lang` 判红时追加的那段话 |
+| `texts.clean` | `""` | 没有判红、但想补一句时追加的那段话 |
+
+只对 `type === "thinking"` 的块追加；正文块原样返回。文案要过零容差自审，否则扩展拒绝启动。
+
+### binding · 模型绑定
+
+| 键 | 默认 | 什么时候改 |
+| --- | --- | --- |
+| `allowGateway` | `false` | 走网关代理、拿不到真实 provider 名时设 `true`，否则判据会以为「这个模型不思考」 |
+
+没有 `on`：它不由人开关，而由 provider / api 名字自动判定。anthropic / bedrock 系一律 `capture: false`——它们不暴露 thinking，抓也抓不到。
+
+## 判据
+
+每条配置都要能验，否则填错了不报错、只是永远不生效。
 
 | # | 命题 | 引入（命令 → 期望） | 消去（第二入口） | 反例 |
 | --- | --- | --- | --- | --- |
-| S1 | 配置文件的键集合与 `src/defaults.ts` 的 DEFAULTS 一致 | `node -e` 比对两边键名 → 差集为空 | `grep -oE '^  [a-z]+:' src/defaults.ts` 与文档里的小节标题逐条对 | 文档列 5 个模块、代码有 6 个：`binding` 填了也没人读（2026-11-22 实测） |
-| S2 | 开关关掉后该模块不再动手 | 设 `dup.on=false` → `npm test` 的配置用例 → rc=0 | 同一份输入在 `on=true` 下判红、`on=false` 下不判 | 关掉了还判：用户以为关了 |
-| S3 | `strip.min` 比 `dup.min` 小不生效 | 设 `strip.min=1`、`dup.min=3` → 判据只拦已认定的行 | 与 `judges.ts` 的 `strip` 分支同结论 | 以为 `strip.min` 是独立阈值，设小了想多删——它删不掉判据没认定的行 |
-| S4 | 改配置不用重启 | 改文件 → 下一次 `session_start` 生效 | 同进程内新起一轮，行为已变 | 以为要重启 pi，改完没反应就报 bug |
+| S1 | 本文件的键集合与 `src/defaults.ts` 的 DEFAULTS 一致 | `node -e` 比对两边键名 → 差集为空 | `grep -oE '^  [a-z]+:' src/defaults.ts` 与本文件的模块标题逐条对 | 文档列 5 个模块、代码有 6 个：`binding` 填了没人读 |
+| S2 | 开关关掉后该模块不再动手 | 设 `dup.on=false` → `npm test` 的配置用例 → rc=0 | 同一份输入在 `true` 下判红、`false` 下不判 | 关掉了还判，用户以为关了 |
+| S3 | `strip.min` 不是独立阈值 | 设 `strip.min=1`、`dup.min=3` → 只删判据已认定的行 | 与 `judges.ts` 的 strip 分支同结论 | 以为设小就能多删 |
+| S4 | 改配置不用重启 | 改文件 → 下一次 `session_start` 生效 | 同进程新起一轮，行为已变 | 以为要重启 pi，改完没反应就报 bug |
 
-判据：`npm test` → rc=0；`node --experimental-strip-types scripts/check-rules-coverage.mjs` → 6 条规则 0 缺口。
-## 六个模块
-
-**intercept 拦截。** 判不合格时挡住工具调用。没有参数。
-
-**dup 重复行守护。** 同一行出现够 `min` 次就判不合格，默认 3。
-
-**lang 语言守护。** `dir` 是 `"zh"` 或 `"en"`，写别的回 `"zh"`。
-
-**strip 删重复行。** 回答结束时删掉重复行。它自己不做判断：判据给的是《哪一行重复几次、出现在
-哪些行号》，它按行号**从后往前**删——从前往后会踩到「删了第 3 行，第 5 行变成第 4 行」的偏移。
-
-删空时留一句占位（`（这一段的重复行已删除）`），不留空白 thinking 段。
-
-- `min` 与 `dup.min` 分开，可以更严（守护按 3 次拦、删行按 5 次才动手）。设成比 `dup.min` 还小不生效：判据都没认定的行，没有依据删。
-- **`dup` 关掉时 `strip` 不工作。** 没有判据说「这些行重复了」，就没有删的依据。以前它能删，是因为它偷偷又判了一遍，那正是问题所在。
-
-**inject 尾部注入。** `text` 是要追加的文案，空字符串就是不追加。
-
-## 语言怎么判
-
-守中文：一行里有汉字算合格，没有汉字算不合格。不合格行比合格行多就判不合格。
-
-守英文：一行里有拉丁字母算合格，否则算不合格。
-
-空白行、代码围栏包住的行、缩进的行不参与投票。
-
-## 用命令改
-
-格式是 `think-sentry <模块> <键> <值>`。
-
-    think-sentry                看全部配置与计数
-    think-sentry dup            看 dup 这一个模块
-
-    think-sentry intercept off  关掉拦截
-    think-sentry dup min 5      重复行门槛改成 5
-
-    think-sentry lang dir en    切到守英文
-    think-sentry strip min 4    删行门槛改成 4
-
-开关都用 `on` / `off`，写法是 `think-sentry <模块> on`。
-
-命令改完立即生效，同时写进 `settings.json`，重启后仍然有效。
-
-## 配置读坏了怎么办
-
-三层兜底，任何一层出问题都不会让插件起不来。
-
-1. 文件不存在：写一份默认的，之后不再覆盖。
-2. 整份不是合法 JSON，或者顶层不是对象：全用默认值。
-3. 某一个字段的值不对：只退这一个字段，同模块其他字段照常。
-
-每个模块只认自己声明的键。写别的键不会被保存，也不会报错。
-
-## 旧配置会自动迁移
-
-早先的写法是顶层 `selfCheck` 与 `selfCheckText`，`lang` 直接写 `"zh"`。这些还能读：
-
-- `selfCheck` / `selfCheckText` 会挪进 `inject` 的 `on` 与 `text`。
-- `lang: "en"` 会读成 `{ "on": true, "dir": "en" }`。
-
-第一次用命令保存之后，文件就是新形状。
-
-## 环境变量
-
-都是排障和测试用的，不是配置。
-
-| 变量 | 作用 |
-| --- | --- |
-| `CURB_TRACE=1` | 钩子调用写到 stderr |
-| `CURB_CONFIG_FILE` | 换配置文件路径 |
-| `CURB_COOLDOWN_FILE` | 换计数文件路径 |
-
-还有两个强制开关只给测试用，会让任何文本恒判不合格，别在日常环境里设：`CURB_FORCE_STRIP`、`CURB_FORCE_RETRACT`。
-
-## 计数文件
-
-按会话分键记六个数。不用手改。成对的看法：`turns` 配 `red` 是「多少轮被判红」（轮 = 一次模型响应 + 工具调用），`red` 配 `blocked` 是「判红后真拦住多少」；`judgeCalls` 是帧数不是思考数，别当分母。
-
-## 判据看不见这段时
-
-整段落进围栏或缩进（三行以上豁免、且没有一行正文）时判据报 `opaque`。拦截读的是**上一次判决**，不是「干净」——否则贴一段代码就能撤回判红。细节在 `README.md`。
-
-## 配置写错了会怎样
-
-门槛（`dup.min`、`strip.min`）只认有限整数且不小于 2。写了别的（`"abc"`、`1`、空串）会退回默认值，并把**原值**记进体检报告：`think-sentry` 输出里的 `lastRejected` 就是它，正常时为 `null`。没写这个键不算配错，不留报告。
-
-报告记原值不记次数：次数是「重读次数」的函数（每次 `tool_call` 前都会重读），长会话里能涨到几千，读不出「配错了几次」。报告每次重读重新算，改回合法值就变回 `null`。
-
-配置文件本身读不出来时不动它（不覆盖），`think-sentry` 输出里的 `problem` 是 `missing` 或 `broken`。
-
-改完配置不用重启：插件的三个边界（`before_agent_start`、`tool_call`、`turn_end`）会比对文件 mtime，变了就重读。判据在流式帧上跑，那一层不比对 mtime（每轮一千多帧，划不来），所以「改配置」与「下一次工具调用生效」之间最多差一轮。
+```bash
+npm test                                                              # rc=0
+node --experimental-strip-types scripts/check-rules-coverage.mjs       # 6 条规则，0 缺口
+node verify-dtt.mjs                                                    # 元理论节齐、四件齐
+```
