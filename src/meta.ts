@@ -13,6 +13,12 @@ export const META = "依赖类型理论" as const;
 export type Piece = "形成" | "引入" | "消去" | "反例";
 
 export interface Rule {
+  /** 与 verdict.rule 或机制名对齐，供 check-rules-coverage 校验。 */
+  readonly id?: string;
+  /** verdict = 产生判决的判据；mechanism = 机制约束（不产生 rule）。 */
+  readonly kind?: "verdict" | "mechanism";
+  /** 这条规则约束的文件（相对 src/），判据会验它存在。 */
+  readonly module?: string;
   readonly prop: string;
   readonly 形成: string;
   readonly 引入: string;

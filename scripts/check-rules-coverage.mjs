@@ -37,7 +37,7 @@ export async function check(dir = here) {
 
 if (process.argv.includes("--selftest")) {
   // 反例：把某条 RULES 的 module 改成一个不存在的文件，判据必须红。
-  const { RULES } = await import(pathToFileURL(path.join(src, "meta.ts")).href);
+  const { RULES } = await import(pathToFileURL(path.join(here, "src", "meta.ts")).href);
   const bad = RULES.map((r, i) => (i === 0 ? { ...r, module: "features/不存在的模块.ts" } : r));
   const problems = [];
   for (const r of bad) if (r.module && !fs.existsSync(path.join(here, "src", r.module))) problems.push(r.id + " 点名的文件不存在");
