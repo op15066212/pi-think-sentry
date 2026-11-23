@@ -50,7 +50,7 @@
 判据：
 
 ```bash
-npm test                                    # 190 条，含 11 条坍缩用例 + 2 条轮级用例
+npm test                                    # 全部；条数以运行时为准，不写进文档
 node --experimental-strip-types --test test/collapse.test.ts
 node --experimental-strip-types --test test/round-clean.test.ts
 ```
