@@ -12,12 +12,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import { statusLines } from "../src/index.ts";
+import { readConfig, configFile } from "../src/config.ts";
 
 const dir = path.join(import.meta.dirname, "..");
 // 与环境变量同一口径：测试要能把台账指到临时文件，否则断的是「今天的真实数字」而不是代码。
 const ledger = process.env.PI_THINK_SENTRY_LEDGER || path.join(dir, "ledger", "judgments.jsonl");
 
 const out = [];
+let ledgerData = null;   // 两条出口共用：机读不重算，直接给这份
 
 // 一 配置与门槛（与 /think-sentry 同一条 code path）
 for (const l of statusLines()) out.push(l);
@@ -34,6 +36,7 @@ try {
   const byRule = {};
   for (const r of red) byRule[r.rule] = (byRule[r.rule] || 0) + 1;
   const last = red.length ? red[red.length - 1].at.slice(0, 16).replace("T", " ") : "无";
+  ledgerData = { red: red.length, block: block.length, dedup: uniq.size, byRule, last };
   out.push("");
   out.push("台账 " + red.length + " 红 / " + block.length + " 拦");
   out.push("去重后 " + uniq.size + " 次");
@@ -45,4 +48,10 @@ try {
   process.exitCode = 1;
 }
 
-console.log(out.join("\n"));
+// 机读：与上面同一次计算，只是换个形状。不重算——两处各算一遍迟早不一样。
+if (process.argv.includes("--json")) {
+  // config 单独给结构化的：机读取数字，不该反过来去解析人类那几行。
+  console.log(JSON.stringify({ config: readConfig(), file: configFile(), lines: out.filter((l) => l !== ""), ledger: ledgerData }, null, 2));
+} else {
+  console.log(out.join("\n"));
+}

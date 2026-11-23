@@ -186,7 +186,34 @@ strip 4   lang zh   拦截 开
 **「台账 3021 红 / 去重后 190 次」这一对是重点**：第一个数含着流式的重复帧，
 第二个才是真实判红次数。两个数摆在一起，虚高多少一眼看得出。
 
+加 `--json` 出机读：
+
+```bash
+node bin/status.mjs --json
+```
+
+```json
+{
+  "config": { "dup": { "on": true, "min": 4 }, "strip": { "on": true, "min": 4 }, "...": "..." },
+  "file": "C:\\Users\\...\\settings.json",
+  "lines": ["capture on   code 最新", "..."],
+  "ledger": { "red": 3114, "block": 403, "dedup": 269, "byRule": { "dup": 3063 }, "last": "..." }
+}
+```
+
+`config` 单独给结构化的：机读取数字，不必反过来解析人类那几行。
+`lines` 一并给出，是同一份渲染结果，不是重算的。
+
 退出码：0 正常，1 台账读不出（判据失败，不是环境缺失）。
+
+### 四个入口，两种形状
+
+| 从哪进 | 人读 | 机读 |
+|---|---|---|
+| pi 内 | `/think-sentry` | `/think-sentry json` |
+| bash | `npm run status` | `node bin/status.mjs --json` |
+
+四条路走的是同一份计算（`statusLines()` 与 `readConfig()`），不是四段代码。
 
 长度不是审美问题：PiDeck 的通知弹窗没有复制按钮、宽度约 400px，超了就被裁掉，裁掉的部分等于没写。测试里有两条断言守着——行数 ≤ 6、每行 ≤ 44 字符。
 

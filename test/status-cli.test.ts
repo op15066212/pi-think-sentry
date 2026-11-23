@@ -12,6 +12,29 @@ import path from "node:path";
 
 const bin = path.join(import.meta.dirname, "..", "bin", "status.mjs");
 
+// 机读出口：JSON 能解析、字段齐、与人类那几行同源。
+// 只测「能 parse」不够——字段名写错也能 parse，测的是形状。
+test("bin/status.mjs --json：能解析，config 与 ledger 都在", () => {
+  const TMP = path.join(os.tmpdir(), "status-json-" + process.pid + ".jsonl");
+  fs.writeFileSync(TMP, "");
+  const prev = process.env.PI_THINK_SENTRY_LEDGER;
+  process.env.PI_THINK_SENTRY_LEDGER = TMP;
+  try {
+    const out = execFileSync(process.execPath, [bin, "--json"], { encoding: "utf8", env: process.env });
+    const j = JSON.parse(out);
+    assert.equal(typeof j.config.dup.min, "number", "config.dup.min 要是数字");
+    assert.equal(typeof j.config.strip.min, "number", "config.strip.min 要是数字");
+    assert.ok(Array.isArray(j.lines), "lines 要是数组");
+    assert.ok(j.ledger && typeof j.ledger.red === "number", "ledger.red 要是数字");
+    assert.equal(typeof j.ledger.dedup, "number");
+    assert.ok(j.file.endsWith("settings.json"), "file 指向配置文件，实际：" + j.file);
+  } finally {
+    if (prev === undefined) delete process.env.PI_THINK_SENTRY_LEDGER;
+    else process.env.PI_THINK_SENTRY_LEDGER = prev;
+    fs.rmSync(TMP, { force: true });
+  }
+});
+
 test("bin/status.mjs：rc=0，输出门槛与台账两节", () => {
   // 台账指到临时空文件：否则这个测试读的是真实台账，数值天天变，断的是环境不是代码。
   const TMP = path.join(os.tmpdir(), "status-cli-" + process.pid + ".jsonl");
