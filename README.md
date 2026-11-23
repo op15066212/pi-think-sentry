@@ -30,6 +30,19 @@
 判法：`node verify-dtt.mjs`（rc=0）；坏样本 `node verify-dtt.mjs --selftest`（五个坏样本全红）；指纹 `node verify-dtt.mjs --fingerprint`（sha256，与 `SIGN-OFF-DTT.md` 里的一致才算签过）。
 
 这套判法自己的反例：文档长得像规则、每格都填着形容词。`verify-dtt.mjs` 判反例格是否为空、判点名的脚本在不在盘上——形容词能过格，脚本不在盘上过不了。
+## 判决什么时候被清空
+
+判决（`lastV`）只有一个清空点：`before_agent_start`（新一轮开始）。
+
+这条不是设计洁癖，是修出来的：在此之前，每个 `message_update` 都覆盖判决，
+而模型写完思考要调工具时，那一帧的 thinking 是空的——空内容判成干净，
+**把上一帧的判红洗白了**，于是 `tool_call` 时拦不到。
+
+真实数据（某会话）：判红 790 次、拦下 7 次。差距就是被空帧抹掉的。
+
+现在：空 thinking 帧跳过（trace 记 `empty-keep`），判决保持到下一轮开始。
+判据：`test/empty-frame.test.ts` 两条——空帧不洗白、新一轮才清空。
+
 ## 防回灌（处置之后不能变成新的来源）
 
 处置会把重复换成一行标记，标记留在上下文里。标记本身可能被模型读到、抄下来。

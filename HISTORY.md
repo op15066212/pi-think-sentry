@@ -35,7 +35,16 @@ v3 覆盖前两版的特例：连续 37 句 uniq=1、交替 AB uniq=2、换词�
 - 只有 `tool_call` 拦，纯文本轮没有拦截点；兜底是 `turn_end` 的折叠。
   不改成「整轮都拦」：模型改好了也逃不掉，实测它的反应是找绕过而不是改（R11 用台账数据推翻过）。
 
-判据：`npm test` 190/190；`test/collapse.test.ts` 11 条、`test/round-clean.test.ts` 2 条。
+**六 空帧洗白判决（「为什么没拦截」的直接答案）。**
+现象：判据判红了，工具调用照样执行。台账：某会话 red=790 / blocked=7。
+根因：模型写完思考要调工具，那一帧 `thinkingOf()` 返回空串，`judgeThinking("")` 得 none，
+**覆盖掉上一帧的判红**，于是 `tool_call` 查到的判决是干净的。
+修法：空 thinking 不更新判决（trace 记 `empty-keep`）；清空判决只留一个点——`before_agent_start`。
+两个清空点必然分叉，所以只留一个。
+判据：`test/empty-frame.test.ts`（2 条）。
+
+判据：`npm test` 195/195；`test/collapse.test.ts` 11 条、`test/round-clean.test.ts` 2 条、
+`test/no-reflow.test.ts` 3 条、`test/empty-frame.test.ts` 2 条。
 
 ## 0.1.45 · 2026-11-22 · R8/R9 四轮三方签字
 
