@@ -300,6 +300,15 @@ export default async function installGuard(pi: any) {
     try {
       think = thinkingOf(event?.message);
       trace("hook", { h: "message_update", phase: "in", len: think.length });
+      // 空 thinking 是「思考已经输出完、现在在出工具调用」的那一帧，不是新的判决。
+      // 2026-11-23 实测（用户问「为什么没拦截」）：那一帧 judgeThinking("") 返回 none，
+      // 覆盖掉上一帧的判红，于是 tool_call 时 lastV 是干净的 → 拦不到。
+      // 台账证据：某会话 red=790 / blocked=7，绝大多数红根本没有对应的拦截机会。
+      // 清空判决的地方只有一个：before_agent_start（新一轮开始）。
+      if (!think.trim()) {
+        trace("hook", { h: "message_update", phase: "empty-keep" });
+        return;
+      }
       v = judgeThinking(think, jcfg);
     } catch (e: any) {
       stats.judgeErrors++;
