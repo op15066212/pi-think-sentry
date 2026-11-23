@@ -161,6 +161,33 @@ strip 4   lang zh   拦截 开
 
 **要机读就加参数**：`/think-sentry json`，返回原来的完整 JSON。
 
+### 不进 pi 也能查：`npm run status`
+
+`/think-sentry` 是 pi 内的命令，脚本与别的 agent 调不到。所以另有一个 CLI 入口：
+
+```bash
+cd ~/.pi/agent/extensions/pi-think-sentry && npm run status
+```
+
+输出与命令同一个格式，多一节台账（磁盘上的历史，只有 CLI 读得到）：
+
+```text
+capture on   code 最新
+回合 0  红 0  拦 0  处置 0
+dup 4   inline 12句/25%
+strip 4   lang zh   拦截 开
+
+台账 3021 红 / 293 拦
+去重后 190 次
+按规则 dup:2985 lang:20 inline:16
+最后一次 2026-11-23 17:07
+```
+
+**「台账 3021 红 / 去重后 190 次」这一对是重点**：第一个数含着流式的重复帧，
+第二个才是真实判红次数。两个数摆在一起，虚高多少一眼看得出。
+
+退出码：0 正常，1 台账读不出（判据失败，不是环境缺失）。
+
 长度不是审美问题：PiDeck 的通知弹窗没有复制按钮、宽度约 400px，超了就被裁掉，裁掉的部分等于没写。测试里有两条断言守着——行数 ≤ 6、每行 ≤ 44 字符。
 
 每个键的解释（默认值、什么时候改、反例）见 [`SETTINGS.md`](./SETTINGS.md)。

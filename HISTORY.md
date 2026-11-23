@@ -71,6 +71,13 @@ v3 覆盖前两版的特例：连续 37 句 uniq=1、交替 AB uniq=2、换词�
 顺带把 `strip.min` 的默认值从 3 改成 4，与 `dup.min` 同步；并加了跨字段检查：
 处置门槛大于判红门槛时报 `strip-gt-dup`——两个字段单独看都合法，只有放在一起才矛盾。
 
+**十一 加 CLI：数据要自己读得到，不能等人贴。**
+使用者问了两次「所有数据，你自己可以查看，而不是需要我调用给你」。
+`/think-sentry` 是 pi 内部命令，agent 在 bash 里调不到，只能写临时测试去模拟——等于每次都绕一圈。
+加了 `bin/status.mjs`，`npm run status` 直接输出同一份短表，多一节台账统计。
+第一次跑就报出真相：**台账 2492 条红，去重后只有 145 次**，虚高 17 倍。
+这也是为什么「去重」那条改动的判据必须建在磁盘文件上，而不是内存计数上。
+
 判据：`npm test` 195/195；`test/collapse.test.ts` 11 条、`test/round-clean.test.ts` 2 条、
 `test/no-reflow.test.ts` 3 条、`test/empty-frame.test.ts` 2 条。
 

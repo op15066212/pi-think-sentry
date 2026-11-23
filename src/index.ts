@@ -221,6 +221,24 @@ const parseValue = (d: any, raw: string): { ok: true; v: any } | { ok: false; wh
 };
 
 // 命令：think-sentry <模块> <键> <值>。键来自模块自己的 defaults，不另列一份。
+// 状态行：pi 里的命令与 bin/status.mjs 共用一套格式。
+// 两处各写一遍，迟早不一样（这正是「一处可写」要防的）。
+// CLI 里 binding 是 unknown、stats 全 0——那是另一个进程的状态，配置文件才是两者的共同事实。
+export const statusLines = () => {
+  const c = readConfig();
+  const stale = LOADED_STAMP !== codeStamp();
+  const b = bindingLabel(binding);
+  const lines = [
+    "capture " + (b.startsWith("on") ? "on" : "off") + "   code " + (stale ? "旧代码(重启)" : "最新"),
+    "回合 " + stats.turns + "  红 " + stats.red + "  拦 " + stats.blocked + "  处置 " + stats.cleaned,
+    "dup " + c.dup.min + "   inline " + c.inline.min + "句/" + Math.round(c.inline.ratio * 100) + "%",
+    "strip " + c.strip.min + "   lang " + c.lang.dir + "   拦截 " + (c.intercept.on ? "开" : "关"),
+  ];
+  const problem = readProblem();
+  if (problem) lines.push("问题 " + String(JSON.stringify(problem)).slice(0, 34));
+  return lines;
+};
+
 const runCommand = (args: any) => {
   const a = String(args || "").trim();
   const c = readConfig();
@@ -229,19 +247,9 @@ const runCommand = (args: any) => {
     // rejected 同理：门槛给了值但不合法时会被静默兜底，这里把次数摆出来。
     // R7：第一项就是 capture——配置里写了 inject.text 却因为是 Anthropic/responses 而不生效时，
     // 人得在这儿看出来，而不是以为改写生效了。
-    // 默认 4 行短表，每行 ≤ 40 字符（2026-11-23 用户三次反馈：一坨 JSON 很丑、会溢出、没有复制按钮）。
+    // 默认 4 行短表，每行 ≤ 44 字符（2026-11-23 用户三次反馈：一坨 JSON 很丑、会溢出、没有复制按钮）。
     // 要机读就加参数：/think-sentry json
-    const stale = LOADED_STAMP !== codeStamp();
-    const b = bindingLabel(binding);
-    const lines = [
-      "capture " + (b.startsWith("on") ? "on" : "off") + "   code " + (stale ? "旧代码(重启)" : "最新"),
-      "回合 " + stats.turns + "  红 " + stats.red + "  拦 " + stats.blocked + "  处置 " + stats.cleaned,
-      "dup " + c.dup.min + "   inline " + c.inline.min + "句/" + Math.round(c.inline.ratio * 100) + "%",
-      "strip " + c.strip.min + "   lang " + c.lang.dir + "   拦截 " + (c.intercept.on ? "开" : "关"),
-    ];
-    const problem = readProblem();
-    if (problem) lines.push("问题 " + String(JSON.stringify(problem)).slice(0, 34));
-    return lines.join(String.fromCharCode(10));
+    return statusLines().join(String.fromCharCode(10));
   }
   if (a === "json") {
     const stale2 = LOADED_STAMP !== codeStamp();
