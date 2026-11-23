@@ -10,7 +10,8 @@
     "replay": "node --experimental-strip-types scripts/replay.ts",
     "mutate": "node bin/mutate.mjs",
     "check:rules": "node --experimental-strip-types scripts/check-rules-coverage.mjs",
-    "check:docs": "node scripts/check-doc-accuracy.mjs"
+    "check:docs": "node scripts/check-doc-accuracy.mjs",
+    "e2e": "node --experimental-strip-types scripts/e2e-real.mjs"
   },
   "pi": {
     "extensions": [
