@@ -203,9 +203,18 @@ test("观察面：拦过一次后 blocked 计数与命令输出都能看到", as
   const cmd = pi.commands["think-sentry"];
   assert.ok(cmd, "应当注册 think-sentry 命令");
   const out = await cmd.handler("", { ui: { notify() {} } });
-  const j = JSON.parse(out);
-  assert.ok(j.blocked >= 1, "blocked 应当至少 1，实际 " + out);
-  assert.equal(typeof j.lang, "string", "JSON 里要有 lang");
+  // 默认是给人读的 4 行短表（2026-11-23 用户反馈：一坨 JSON 又丑又溢出、没复制按钮）
+  assert.ok(/^capture (on|off)\b/m.test(out), "第一行应当是 capture on|off，实际：" + out);
+  assert.ok(/拦 [1-9]/.test(out), "要能看到拦过几次，实际：" + out);
+  const rows = out.split("\n");
+  assert.ok(rows.length <= 6, "行数应当 ≤ 6，实际 " + rows.length);
+  for (const line of rows) {
+    assert.ok(line.length <= 44, "每行 ≤ 44 字符（弹窗会溢出），实际 " + line.length + "：" + line);
+  }
+  // 机读走 json 参数：同一次调用，两种出口
+  const j = JSON.parse(await cmd.handler("json", { ui: { notify() {} } }));
+  assert.ok(j.blocked >= 1, "json 里 blocked 应当至少 1");
+  assert.equal(typeof j.lang, "string", "json 里要有 lang");
 });
 
 test("整块都是碎片：有正文就删光，只剩思考才回退原文", async () => {

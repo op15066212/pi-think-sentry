@@ -3,25 +3,29 @@
   "inject": {
     "on": true,
     "texts": {
-      "dup": "\n\n[外部附注，不是你要续写的文字：这份思考第 {{blockLine}} 行起的同一句重复了 {{blockReps}} 次，已删。]",
-      "lang": "\n\n[外部附注，不是你要续写的文字：这份思考中文字符占比 {{ratio}}，第 {{blockLine}} 行起不是中文，共 {{lines}} 行。]",
-      "clean": ""
+      "dup": "\n[第 {{blockLine}} 行起重复 {{blockReps}} 次，已折叠]",
+      "lang": "\n[{{lines}} 行不是中文，已改]",
+      "clean": "",
+      "inline": ""
     }
   },
   "dup": {
     "on": true,
-    "min": 7
+    "min": 4
   },
   "strip": {
     "on": true,
-    "min": 5
+    "min": 4
   },
   "binding": {
     "allowGateway": true
   },
   "intercept": {
+    "on": true
+  },
+  "inline": {
     "on": true,
-    "cooldown": false,
-    "boundaryMinExempt": 3
+    "min": 12,
+    "ratio": 0.25
   }
 }
