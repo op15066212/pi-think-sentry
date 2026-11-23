@@ -106,6 +106,7 @@
 npm test                                    # 全部；条数以运行时为准，不写进文档
 node --experimental-strip-types --test test/collapse.test.ts
 node --experimental-strip-types --test test/round-clean.test.ts
+npm run e2e                                 # 真实退化样本端到端（判据→拦截→折叠）
 ```
 
 ## 这不是一个防御型插件

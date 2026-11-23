@@ -48,6 +48,12 @@ v3 覆盖前两版的特例：连续 37 句 uniq=1、交替 AB uniq=2、换词�
 `boot` 日志与 `/think-sentry` 现在都带四个核心文件的 mtime：加载时记一次，查时再读盘，
 不一致即 `code.stale: true`。版本号是手写字符串，改代码不改版本号分不出来，所以另记指纹。
 
+**八 端到端：拿真实退化跑，不只用构造样本。**
+`scripts/e2e-real.mjs` 从会话记录里捞出真实退化段（31 次「做。」、2395 字节），走三关：
+判据判红 → 同一轮内空 thinking 帧之后 tool_call 仍被拦 → turn_end 处置后重复行 31 → 0。
+断言按判决分支写：`fold` 总是留标记，`strip` 只有删空了才留——
+第一版把两者写成一条，于是 `strip` 的样本报「没有处置标记」，那是断言错，不是处置错。
+
 判据：`npm test` 195/195；`test/collapse.test.ts` 11 条、`test/round-clean.test.ts` 2 条、
 `test/no-reflow.test.ts` 3 条、`test/empty-frame.test.ts` 2 条。
 
