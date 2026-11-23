@@ -8,7 +8,7 @@ import { validThreshold, MIN_FLOOR } from "./threshold.ts";
 import { TRUE_WORDS, FALSE_WORDS, rejectsOf, validUnit } from "./values.ts";
 import { detectBinding, label as bindingLabel, type Binding } from "./features/binding.ts";
 import { judgeThinking, judgeCfg, type JudgeCfg } from "./judges.ts";
-import { TEMPLATE_OF } from "./verdict.ts";
+import { templateKeyOf } from "./verdict.ts";
 import strip from "./features/strip.ts";
 import inject from "./features/inject.ts";
 import intercept, { SAY_BLOCK, SAY_LANG } from "./features/intercept.ts";
@@ -407,7 +407,7 @@ export default async function installGuard(pi: any) {
 
     const before = content;
     // 模板名从 verdict.ts 的表里查，不在调用点写三元（R8）。
-    const withMark = c.inject.on ? inject.applyWith(content, c.inject.texts[TEMPLATE_OF[v?.kind ?? "none"] ?? "clean"] || "", v?.ev) : content;
+    const withMark = c.inject.on ? inject.applyWith(content, c.inject.texts[templateKeyOf(v as any) ?? "clean"] || "", v?.ev) : content;
     if (withMark !== before) stats.injected++;
     writeState();
 

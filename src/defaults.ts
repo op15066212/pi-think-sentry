@@ -24,9 +24,13 @@ export const DEFAULTS = {
   // 那正是「替他把定义改强」。4 取在标记（3 次）与病例（7 次）之间。
   // 代价：整块只有三行 `做。` 的空转会漏判（台账里约 50 次），换来 64 块连拦的死锁解开。
   dup: { on: true, min: 4 },
+  // 2026-11-23（实测）：「ok。ok。ok。…ok。」一行内 37 次，dup 判 none——
+  // dup 按「整行」计数，同一行出现 1 次；退化发生在**一行之内**。
+  // 门槛 4：真实退化段是 5 到 37 次连续，正常写作里同一句连着出现 4 次极少。
+  inline: { on: true, min: 4 },
   lang: { on: true, dir: "zh" },
   strip: { on: true, min: 3 },
-  inject: { on: true, texts: { dup: "", lang: "", clean: "" } },
+  inject: { on: true, texts: { dup: "", lang: "", clean: "", inline: "" } },
   binding: { allowGateway: false },
 } as const;
 

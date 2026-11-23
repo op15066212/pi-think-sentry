@@ -104,7 +104,7 @@ test("开关生效：两个判据都关掉时永远 none", () => {
   // 这里直接给 cfg，而不是复制 index.ts 的投影逻辑（那会是第二份）。
   // 「配置文件里的 on:false 会不会变成 cfg.dupOn:false」由 index.ts 的投影保证，
   // 那条边由 install 那组测试从 message_update 入口验。
-  const v = judgeThinking(Array(5).fill("做。").join("\n"), judgeCfg({ dupOn: false, langOn: false }));
+  const v = judgeThinking(Array(5).fill("做。").join("\n"), judgeCfg({ dupOn: false, langOn: false, inlineOn: false }));
   assert.equal(v.kind, "none", "两个开关都关，判定应当永远是 none");
 });
 

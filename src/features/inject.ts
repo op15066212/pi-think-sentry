@@ -20,7 +20,10 @@ export default {
     const legacy = asText("", r.text, "inject.text");
     const t = asObject(r.texts, "inject.texts");
     const pick = (k: string) => (typeof t[k] === "string" ? t[k] : legacy);
-    return { on, texts: { dup: pick("dup"), lang: pick("lang"), clean: pick("clean") } };
+    // inline 与 dup 分开：句内重复要说清「同一句在**一行内**连了多少次」，
+    // 用 dup 的「第几行起、重复几次」文案会把读者引向「删那一行」——
+    // 而那一行里还有正常内容（见 features/strip.ts 的 foldInline 注释）。
+    return { on, texts: { dup: pick("dup"), lang: pick("lang"), clean: pick("clean"), inline: pick("inline") } };
   },
 
   // 追加到最后一个 thinking 块的末尾；没有 thinking 块就原样返回。

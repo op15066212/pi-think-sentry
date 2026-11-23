@@ -2,6 +2,7 @@ import { stripDupLines } from "../cut.ts";
 import { threshold } from "../threshold.ts";
 import { asBool } from "../values.ts";
 import { DEFAULTS, defaultsOf } from "../defaults.ts";
+import { assertNever } from "../verdict.ts";
 
 // 删重复行：轮末把判据已经认定的重复行删掉。
 //
@@ -13,6 +14,50 @@ import { DEFAULTS, defaultsOf } from "../defaults.ts";
 // 删行门槛的默认值。它与 dup.min 是两个独立门槛（可以更严），所以不引用 DUP_MIN——
 // 相同只是巧合，改一处不该牵动另一处。
 const STRIP_MIN: number = DEFAULTS.strip.min;
+
+// 句内重复的处置：**折叠，不删行**。
+//
+// 为什么不能删行：dup 的重复单位是「整行」，删了不损失别的内容；
+// inline 的重复发生在**一行之内**——那一行里还有正常内容（「verify-all PASS，现在跑 X」），
+// 整行删会把有效信息一起删掉。所以只能在行内把连续重复的那几句折成一个可数的指针。
+//
+// 指针为什么带数字：模型下一轮会读到这个折叠标记。`[ok。 ×13]` 是**可核对的事实**
+// （13 次），不像原始退化文本那样可以无限自我强化。它可数、不可再复制。
+function foldInline(source: any[], v: any, floor: number) {
+  const ev = v?.ev || {};
+  const lineFrom = Number(ev.line);
+  const lineTo = Number(ev.lineTo ?? ev.line);
+  const len = Number(ev.len);
+  const unique = Number(ev.unique);
+  if (!Number.isFinite(lineFrom) || !Number.isFinite(lineTo) || lineFrom < 1 || lineTo < lineFrom) {
+    return { content: source, cleaned: false };
+  }
+  if (!Number.isFinite(len) || len < floor) return { content: source, cleaned: false };
+
+  // 按**行区间**折叠，不按句子正则。
+  // 为什么（2026-11-23 第三次）：坍缩是「多行、每行不同、整体只有几种」，
+  // 用第一句做正则会误删区间外出现的同一句，而区间内其余行原样留着——等于没治。
+  // 行号来自判据（ev.line / ev.lineTo），指得到原文，不复制内容。
+  const mark = "[" + len + " 句、共 " + lineFrom + "-" + lineTo + " 行坍缩成 " + unique + " 种，已折叠]";
+
+  let offset = 0;
+  let touched = false;
+  const out = source.flatMap((c: any) => {
+    if (c?.type !== "thinking") return [c];
+    const lines = String(c.thinking || "").split("\n");
+    const n = lines.length;
+    const lo = Math.max(0, lineFrom - 1 - offset);
+    const hi = Math.min(n - 1, lineTo - 1 - offset);
+    offset += n;
+    if (hi < lo) return [c];
+    // 区间外的行原样保留，区间内的行合并成一句标记（保留区间前后的正常内容）
+    const before = lines.slice(0, lo);
+    const after = lines.slice(hi + 1);
+    touched = true;
+    return [{ ...c, thinking: [...before, mark, ...after].join("\n") }];
+  });
+  return { content: out, cleaned: touched };
+}
 
 export default {
   name: "strip",
@@ -27,6 +72,21 @@ export default {
   clean(content: any, v: any, min: any) {
     const source = Array.isArray(content) ? content : [];
     const floor = threshold(min, STRIP_MIN, "strip.min.clean");
+    // 按构造子分派，不按 rule：strip 与 fold 是两个动作（整行删 / 行内折叠）。
+    // 这里用 switch 而不是 if，是为了让 tsc 查穷尽——将来加第五种构造子，
+    // 漏改这里会在编译期报 `never` 不可赋值。
+    switch (v?.kind) {
+      case "fold":
+        return foldInline(source, v, floor);
+      case "strip":
+        break;
+      case "retract":
+      case "none":
+      case undefined:
+        break;
+      default:
+        return assertNever(v.kind as never);
+    }
     const judged = Array.isArray(v?.ev?.dups) ? v.ev.dups : [];
     const want = judged.filter((x: any) => Number(x?.[1]) >= floor && Array.isArray(x?.[2]));
     if (!want.length) return { content: source, cleaned: false };

@@ -15,6 +15,7 @@ import { DEFAULTS } from "./defaults.ts";
 // 全部删掉。剩下的就是下面这些。
 
 export const DUP_MIN: number = DEFAULTS.dup.min;
+export const INLINE_MIN: number = DEFAULTS.inline.min;
 
 // ===== 位置：把文本切成行，每行一个标签 =====
 //
@@ -61,6 +62,8 @@ export const voteOf = (ls: Line[]) => ls.filter((l) => l.kind === "vote");
 export type JudgeCfg = {
   dupOn: boolean;
   dupMin: number;
+  inlineOn: boolean;
+  inlineMin: number;
   langOn: boolean;
   langDir: "zh" | "en";
   /** 注入文案的行序列（trim 后、去空行）。顺序有意义：只剥末尾那一段。 */
@@ -75,6 +78,8 @@ export const judgeCfg = (patch: any = {}): JudgeCfg => {
   return {
     dupOn: patch.dupOn !== false,
     dupMin: threshold(patch.dupMin, DUP_MIN, "judges.dupMin"),
+    inlineOn: patch.inlineOn !== false,
+    inlineMin: threshold(patch.inlineMin, INLINE_MIN, "judges.inlineMin"),
     langOn: patch.langOn !== false,
     langDir: patch.langDir === "en" ? "en" : "zh",
     skip,
@@ -121,6 +126,156 @@ function dupOn(lines: Line[], cfg: JudgeCfg) {
   };
   if (!hits.length) return none("dup", ev);
   return Verdict.parse({ kind: "strip", rule: "dup", ev });
+}
+
+// ── 判据二：尾部坍缩（2026-11-23 第二次重构）────────────────────────────────
+//
+// 这一条被改过两次，两次都是因为「判据被绕过」：
+//
+//   v1（dup）：按「整行」计数。模型把重复压进一行 → 漏。
+//   v2（inline，连续相同句）：按句子找「连续相同」。模型改成交替（跑。ok。跑。ok。）
+//      和「换词不换结构」（执行。ok。/ 跑。ok。/ 好。执行。ok。）→ 又漏。
+//   v3（本条）：不再匹配形状，测**结构性质**——尾部窗口里有多少个不同的句子。
+//
+// 类型：
+//   Γ ⊢ 段 : Seg = Sentence*              （按行切，行内再按 。！？!? 切）
+//   W_k   = Seg 的后 k 句
+//   uniq(W) = |{ s ∈ W }|                 （去重后的句数）
+//   坍缩(W) ⟺ uniq(W) / |W| ≤ RATIO
+//   最长坍缩后缀 L = 最大的 k，使 W_k 坍缩
+//   判红 ⟺ L ≥ MIN_LEN
+//
+// 为什么它同时覆盖前两版（不是「再补一条 if」，是「前两版是它的特例」）：
+//   连续相同 37 句          → uniq = 1，1/37 ≤ 1/4         ✓
+//   交替 AB × 6             → uniq = 2，2/12 ≤ 1/4         ✓
+//   换词不换结构（480 句）  → uniq ≈ 10，10/480 ≤ 1/4      ✓
+//   正常列举 12 句各不同    → uniq = 12，12/12 = 1         ✗（不判，正确）
+//
+// 反例（必须不判）：正文里写「做完。跑。看。」这类三步式短句，只有 3 句，L < MIN_LEN。
+// 门槛：RATIO=1/4、MIN_LEN=12。MIN_LEN 取 12 是因为：12 句里最多允许 3 种不同句，
+// 正常写作几乎不可能；而退化段实测 200~480 句、uniq 个位数，远远超过门槛。
+const SENT_RE = /[^。！？!?]+[。！？!?]+|[^。！？!?]+$/g;
+export const COLLAPSE_RATIO = 0.25;
+export const COLLAPSE_MIN_LEN = 12;
+
+export function sentencesOf(text: any, skip: string[] = []) {
+  const out: { t: string; li: number }[] = [];
+  String(text || "").split("\n").forEach((ln: string, li: number) => {
+    // 注入文案不算思考内容（自锁的另一半）：walking.test 的用例是「同一句注入 4 次」，
+    // 若不跳过，坍缩判据会把自己注入的提醒当成退化来源，判红→再注入→再判红。
+    // 行号仍按原文计（li 是原始行索引），所以折叠定位不受影响。
+    if (skip.length && skip.includes(ln.trim())) return;
+    const m = ln.match(SENT_RE) || [];
+    for (const raw of m) {
+      const t = String(raw).trim();
+      if (t) out.push({ t, li });
+    }
+  });
+  return out;
+}
+
+/** 最长坍缩区间：整段里任意连续区间，只要 uniq/len ≤ ratio 且 len ≥ minLen，取最长。
+ *
+ * 为什么不是「后缀」（第二次被绕过的地方）：
+ * 实测有一段 192 句、125 个 ok，但**尾部恢复了正常**（结尾是「先看 pideck 技能文档」）。
+ * 只扫尾部就判 none，而中段 60 句里只有 8 种。退化的位置不固定，判据就不能假定它在尾部。
+ *
+ * 复杂度 O(n²)：n 是句数，实测最大 539 句 → 14 万次 Set 操作，不到 5ms。
+ * 有界（Ax4）：超过 MAX_SENT 句就只扫前 MAX_SENT 句并报「截断」。
+ */
+export const COLLAPSE_MAX_SENT = 2000;
+
+export function collapseRange(text: any, ratio = COLLAPSE_RATIO, minLen = COLLAPSE_MIN_LEN, skip: string[] = []) {
+  let sents = sentencesOf(text, skip);
+  let truncated = false;
+  if (sents.length > COLLAPSE_MAX_SENT) {
+    sents = sents.slice(0, COLLAPSE_MAX_SENT);
+    truncated = true;
+  }
+  const n = sents.length;
+  if (n < minLen) return null;
+
+  let best: { from: number; len: number; unique: number } | null = null;
+  for (let i = 0; i < n; i++) {
+    const seen = new Set<string>();
+    // 剪枝：剩下的长度不可能超过当前最优
+    if (best && n - i <= best.len) break;
+    for (let j = i; j < n; j++) {
+      seen.add(sents[j].t);
+      const len = j - i + 1;
+      if ((best === null || len > best.len) && len >= minLen && seen.size / len <= ratio) {
+        best = { from: i, len, unique: seen.size };
+      }
+      // 剪枝：uniq 增长快于 ratio*len 时，继续延长只会更差
+      if (seen.size / len > ratio && seen.size > ratio * (n - i) + 1) break;
+    }
+  }
+  if (!best || best.len < minLen) return null;
+
+  // 收缩两端（2026-11-23 第四次）：单纯「最长区间」会把紧挨着的正常句子吞进来——
+  // 只要加进来之后 uniq/len 仍 ≤ ratio，它就继续扩。实测会把「开头第一行，正常。」也折掉。
+  // 修法：区间首/尾若在区间内只出现一次（= 它不属于这套重复），就把它还给原文。
+  const counts = new Map<string, number>();
+  for (let i = best.from; i < best.from + best.len; i++) {
+    counts.set(sents[i].t, (counts.get(sents[i].t) || 0) + 1);
+  }
+  while (best.len > minLen) {
+    const head = sents[best.from].t;
+    if ((counts.get(head) || 0) > 1) break;
+    counts.set(head, (counts.get(head) || 0) - 1);
+    best.from++;
+    best.len--;
+  }
+  while (best.len > minLen) {
+    const tail = sents[best.from + best.len - 1].t;
+    if ((counts.get(tail) || 0) > 1) break;
+    counts.set(tail, (counts.get(tail) || 0) - 1);
+    best.len--;
+  }
+  best.unique = new Set(sents.slice(best.from, best.from + best.len).map((x) => x.t)).size;
+  if (best.unique / best.len > ratio) return null;
+
+  const first = sents[best.from];
+  const last = sents[best.from + best.len - 1];
+  return {
+    from: best.from,
+    len: best.len,
+    unique: best.unique,
+    ratio: best.unique / best.len,
+    line: first.li + 1,
+    lineTo: last.li + 1,     // 区间最后一句所在行（折叠按行做，需要两端）
+    sample: first.t,
+    truncated,
+    sents,
+  };
+}
+
+function collapseOn(text: any, cfg: JudgeCfg) {
+  // minLen 与「门槛」不是一回事：
+  //   COLLAPSE_MIN_LEN=12 是**判据成立的下限**（少于 12 句，uniq/len 的统计没有意义——
+  //   4 句全同是 25%，但正常写作里「做。做。做。做。」并不构成退化）。
+  //   inline.min 是使用者可以调**更严**的门槛（默认等于下限）。
+  // 2026-11-23：第一版直接把 inlineMin 当 minLen 传，于是 4 行重复就判红，
+  // 连带三条原有用例（dup 关掉时不该拦）一起挂——那是判据把「开关」当成了「尺度」。
+  const minLen = Math.max(COLLAPSE_MIN_LEN, cfg.inlineMin);
+  const c = collapseRange(text, COLLAPSE_RATIO, minLen, cfg.skip || []);
+  if (!c) return none("inline", { blk: null, reps: 0, why: "未坍缩", dups: [], line: null });
+  const ev = {
+    blk: c.sample,
+    reps: c.unique == 0 ? 0 : Math.round(c.len / c.unique),  // 平均每个不同句重复几轮
+    why: c.len + " 句里只有 " + c.unique + " 种（" + Math.round(c.ratio * 100) + "%）" + (c.truncated ? "（已截断）" : ""),
+    // 与 dup 同形，供 strip 定位：这里 [句, 次数, [行号]] 里的「行号」是起始行。
+    dups: [[c.sample, c.len, [c.line - 1]] as [string, number, number[]]],
+    line: c.line,
+    lineTo: c.lineTo,
+    scope: "collapse" as const,
+    from: c.from,
+    len: c.len,
+    unique: c.unique,
+    ratio: c.ratio,
+    truncated: !!c.truncated,
+  };
+  return Verdict.parse({ kind: "fold", rule: "inline", ev });
 }
 
 const countCjk = (s: any) => (s.match(/[\u3400-\u4dbf\u4e00-\u9fff]/g) || []).length;
@@ -171,6 +326,10 @@ export function judgeThinking(text: any, cfg: JudgeCfg = judgeCfg()) {
   if (cfg.dupOn) {
     const d = dupOn(voteOf(all), cfg);
     if (d.kind !== "none") return d;
+  }
+  if (cfg.inlineOn) {
+    const q = collapseOn(raw, cfg);
+    if (q.kind !== "none") return q;
   }
   if (!cfg.langOn) return none("lang", { cjk: 0, lat: 0, lines: 0, dir: cfg.langDir, sample: null });
   return langOn(lines, cfg);
