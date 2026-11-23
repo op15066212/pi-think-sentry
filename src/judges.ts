@@ -64,6 +64,7 @@ export type JudgeCfg = {
   dupMin: number;
   inlineOn: boolean;
   inlineMin: number;
+  inlineRatio: number;
   langOn: boolean;
   langDir: "zh" | "en";
   /** 注入文案的行序列（trim 后、去空行）。顺序有意义：只剥末尾那一段。 */
@@ -80,6 +81,7 @@ export const judgeCfg = (patch: any = {}): JudgeCfg => {
     dupMin: threshold(patch.dupMin, DUP_MIN, "judges.dupMin"),
     inlineOn: patch.inlineOn !== false,
     inlineMin: threshold(patch.inlineMin, INLINE_MIN, "judges.inlineMin"),
+    inlineRatio: ratioOf(patch.inlineRatio, INLINE_RATIO),
     langOn: patch.langOn !== false,
     langDir: patch.langDir === "en" ? "en" : "zh",
     skip,
@@ -155,7 +157,18 @@ function dupOn(lines: Line[], cfg: JudgeCfg) {
 // 门槛：RATIO=1/4、MIN_LEN=12。MIN_LEN 取 12 是因为：12 句里最多允许 3 种不同句，
 // 正常写作几乎不可能；而退化段实测 200~480 句、uniq 个位数，远远超过门槛。
 const SENT_RE = /[^。！？!?]+[。！？!?]+|[^。！？!?]+$/g;
-export const COLLAPSE_RATIO = 0.25;
+/** 比例门槛：与 threshold（整数）分开，因为 0<r<1 与 ≥1 是两种取值域。 */
+function ratioOf(raw: any, dflt: number): number {
+  if (raw === undefined || raw === null) return dflt;
+  const n = Number(raw);
+  if (!(Number.isFinite(n) && n > 0 && n < 1)) {
+    throw new Error("judges.inlineRatio 必须在 (0,1) 之间，实际 " + String(raw));
+  }
+  return n;
+}
+
+export const INLINE_RATIO: number = DEFAULTS.inline.ratio;
+export const COLLAPSE_RATIO = INLINE_RATIO;
 export const COLLAPSE_MIN_LEN = 12;
 
 export function sentencesOf(text: any, skip: string[] = []) {
@@ -258,7 +271,7 @@ function collapseOn(text: any, cfg: JudgeCfg) {
   // 2026-11-23：第一版直接把 inlineMin 当 minLen 传，于是 4 行重复就判红，
   // 连带三条原有用例（dup 关掉时不该拦）一起挂——那是判据把「开关」当成了「尺度」。
   const minLen = Math.max(COLLAPSE_MIN_LEN, cfg.inlineMin);
-  const c = collapseRange(text, COLLAPSE_RATIO, minLen, cfg.skip || []);
+  const c = collapseRange(text, cfg.inlineRatio, minLen, cfg.skip || []);
   if (!c) return none("inline", { blk: null, reps: 0, why: "未坍缩", dups: [], line: null });
   const ev = {
     blk: c.sample,

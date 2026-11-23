@@ -276,6 +276,18 @@ export default async function installGuard(pi: any) {
   });
 
   // 每一帧都判。开哪个模块由 config 决定，judgeThinking 内部按开关走。
+  // 轮级粘性（2026-11-23）：本轮所有判红的帧，不在每帧覆盖。
+  //
+  // 为什么必须换（用户问「为什么可以绕过拦截」，答案是三处帧级假设）：
+  //   一 turn_end 里 outcome !== "completed" 直接 return → 被打断的那一轮不折叠，
+  //      退化文本原样进下一轮上下文；
+  //   二 lastV 是「最后一帧」的判决，模型退化之后补一句正常话，lastV 变 none → 拦不到；
+  //   三 只有 tool_call 拦，纯文本轮不碰工具就没有拦截点（turn_end 的折叠是事后补救）。
+  //
+  // 帧级 → 轮级：一次判红，整轮都算红。这不是 R11 删掉的「跨轮沿用」——
+  // 那是上一轮的记忆（误拦成百上千次），这是**同一轮内**的证据（真的退化过）。
+  let redFrames: { v: any; think: string }[] = [];
+
   pi.on("message_update", async (event: any, ctx: any) => {
     syncBinding(ctx, cfg);
     stats.judgeCalls++;
@@ -321,6 +333,7 @@ export default async function installGuard(pi: any) {
     lastV = v;
     if (v && v.kind !== "none") {
       sawRed = true;
+      redFrames.push({ v, think });
       ledger({ v: VERSION, ev: "red", len: think.length, kind: v.kind, rule: v.rule, reps: v.ev?.reps ?? null, blk: v.ev?.blk ?? null, head: think.slice(0, 160) });
     }
     trace("hook", { h: "message_update", phase: "out", kind: v?.kind ?? null, tag: v?.tag ?? null, forced: !!v?.forced });
@@ -340,6 +353,11 @@ export default async function installGuard(pi: any) {
   // 现在判决跟着当前思考走，模型改了就走、没改就还拦。没有次数上限，也没有冷却。
   pi.on("tool_call", async (event: any) => {
     const c = refresh();
+    // 拦截仍看**当前这段思考**（帧级），不是轮级粘性。
+    // 为什么（2026-11-23，测试「一致性：拦不拦必须与当前思考逐帧相等」钉住的）：
+    // 轮级拦会让模型改好之后仍被拦——它没法摆脱，实测它的反应是找绕过而不是改。
+    // R11 用台账数据推翻过一次，不该再推翻回来。
+    // 轮级只用于**清洗**（turn_end 折叠）：那不会让模型困住，只会让它看不到自己的退化文本。
     const reason = intercept.reason(lastV, c.intercept.on);
     const red = !!(lastV && lastV.kind !== "none");
     if (red) stats.redCalls++;
@@ -366,12 +384,16 @@ export default async function installGuard(pi: any) {
     syncBinding(ctx, c);
     // 后端会拒或会静默丢：只记账，不写 context_edit。
     if (!binding.capture) {
+      redFrames = [];   // 不介入也要清，否则跨轮泄漏（轮级容器的唯一生命周期点）
       stats.skippedByBinding++;
       trace("hook", { h: "turn_end", binding: bindingLabel(binding) });
       return;
     }
     const outcome = event?.outcome ?? "unknown";
-    if (outcome !== "completed") { trace("hook", { h: "turn_end", skip: outcome }); return; }
+    // 保持原契约：中断/失败的轮次不介入（tests 的「中断的轮次不介入」与「断掉的轮次不计入分母」）。
+    // 2026-11-23 我一度去掉这条，两条测试立刻红——它们是有意的：中断的轮次没有完整 message，
+    // 改写它要么无效，要么把一条本该丢弃的消息固化下来。
+    if (outcome !== "completed") { redFrames = []; trace("hook", { h: "turn_end", skip: outcome }); return; }
     const entryKey = event?.messageEntryId || "";
     if (entryKey !== "" && entryKey === lastEntryId) return;
     lastEntryId = entryKey;
@@ -400,10 +422,32 @@ export default async function installGuard(pi: any) {
     }
 
     let content = source;
+    // 折到不红为止（2026-11-23，第五次）。
+    //
+    // 之前只折「最后一帧的判决」，于是：
+    //   一 一轮里两段不相邻的退化，只折后面那段；
+    //   二 模型退化后补一句正常话，最后一帧判干净，整轮就不折了。
+    // 现在的口径是一个循环：判当前内容 → 红就折 → 再判。直到判干净或用完预算。
+    // 这样不需要保存「哪一帧红过」——内容本身是唯一的真相，折完再判就是验收。
+    //
+    // 预算 5 次（Ax4 有界）：实测一段真实退化 1 次就干净；5 是余量不是估计。
+    // 每多一轮都是一次 O(n²) 的坍缩扫描，n≤539 时单次 < 5ms。
+    const STRIP_ROUNDS = 5;
     if (c.strip.on) {
-      const r = strip.clean(source, v, c.strip.min);
-      if (r.cleaned) { content = r.content; stats.cleaned++; }
+      for (let round = 0; round < STRIP_ROUNDS; round++) {
+        let vv: any = null;
+        try { vv = judgeThinking(thinkingOf({ content }), jcfg); } catch { break; }
+        if (!vv || vv.kind === "none") break;
+        const r = strip.clean(content, vv, c.strip.min);
+        if (!r.cleaned) break;
+        content = r.content;
+        stats.cleaned++;
+        if (round === STRIP_ROUNDS - 1) {
+          trace("hook", { h: "turn_end", phase: "strip-budget-exhausted" });
+        }
+      }
     }
+    redFrames = [];
 
     const before = content;
     // 模板名从 verdict.ts 的表里查，不在调用点写三元（R8）。

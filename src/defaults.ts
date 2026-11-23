@@ -27,7 +27,10 @@ export const DEFAULTS = {
   // 2026-11-23（实测）：「ok。ok。ok。…ok。」一行内 37 次，dup 判 none——
   // dup 按「整行」计数，同一行出现 1 次；退化发生在**一行之内**。
   // 门槛 4：真实退化段是 5 到 37 次连续，正常写作里同一句连着出现 4 次极少。
-  inline: { on: true, min: 4 },
+  // ratio：区间内不同句数 / 总句数 的上限。1/4 是实测分界——
+  //   真退化 6%~25%，正常文本 58%~100%，中间没有样本。
+  // 为什么可配：不同项目的正常写作密度不同（代码注释比散文短），写死就替使用者定了定义。
+  inline: { on: true, min: 12, ratio: 0.25 },
   lang: { on: true, dir: "zh" },
   strip: { on: true, min: 3 },
   inject: { on: true, texts: { dup: "", lang: "", clean: "", inline: "" } },
