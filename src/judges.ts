@@ -157,6 +157,10 @@ function dupOn(lines: Line[], cfg: JudgeCfg) {
 // 门槛：RATIO=1/4、MIN_LEN=12。MIN_LEN 取 12 是因为：12 句里最多允许 3 种不同句，
 // 正常写作几乎不可能；而退化段实测 200~480 句、uniq 个位数，远远超过门槛。
 const SENT_RE = /[^。！？!?]+[。！？!?]+|[^。！？!?]+$/g;
+
+// 两种处置标记的形状（写在生成它们的地方：strip.ts 的 foldInline 与 stripDupLines）。
+// 放在这里是因为判据要跳过它们——标记不是思考内容，是插件自己的话。
+const MARK_RE = /^\[\d+ 句、共 \d+-\d+ 行坍缩成 \d+ 种，已折叠\]$|^\[原第 \d+-\d+ 行共 \d+ 行，全部重复已删\]$/;
 /** 比例门槛：与 threshold（整数）分开，因为 0<r<1 与 ≥1 是两种取值域。 */
 function ratioOf(raw: any, dflt: number): number {
   if (raw === undefined || raw === null) return dflt;
@@ -174,10 +178,16 @@ export const COLLAPSE_MIN_LEN = 12;
 export function sentencesOf(text: any, skip: string[] = []) {
   const out: { t: string; li: number }[] = [];
   String(text || "").split("\n").forEach((ln: string, li: number) => {
+    const t = ln.trim();
     // 注入文案不算思考内容（自锁的另一半）：walking.test 的用例是「同一句注入 4 次」，
     // 若不跳过，坍缩判据会把自己注入的提醒当成退化来源，判红→再注入→再判红。
     // 行号仍按原文计（li 是原始行索引），所以折叠定位不受影响。
-    if (skip.length && skip.includes(ln.trim())) return;
+    if (skip.length && skip.includes(t)) return;
+    // 处置标记也不算（2026-11-23，防回灌的第二半）：
+    // 折叠后的那一行 `[40 句、共 3-3 行坍缩成 3 种，已折叠]` 会被模型读到、可能被抄。
+    // 抄来的标记如果计入统计，它自己就成了「一种句子」，下一轮再抄一次就变成两种——
+    // 越抄越多，等于回灌。这里按形状排除两种标记（fold 的折叠 / strip 的删行）。
+    if (MARK_RE.test(t)) return;
     const m = ln.match(SENT_RE) || [];
     for (const raw of m) {
       const t = String(raw).trim();
@@ -334,7 +344,9 @@ export function judgeThinking(text: any, cfg: JudgeCfg = judgeCfg()) {
   if (process.env.CURB_FORCE_RETRACT) {
     return Verdict.parse({ kind: "retract", rule: "lang", forced: true, ev: { cjk: 0, lat: 99, lines: 99, dir: cfg.langDir, sample: null } });
   }
-  const all = dropInjectedTail(partitionLines(raw), cfg.skip);
+  // 处置标记在任何判据里都不算内容：dup 按整行计数，6 行相同的折叠标记会被判成「复诵 6 次」——
+  // 那等于「处置自己制造了下一次判红」，是最典型的回灌。
+  const all = dropInjectedTail(partitionLines(raw), cfg.skip).filter((l) => !MARK_RE.test(l.t));
   const lines = voteOf(all);
   if (cfg.dupOn) {
     const d = dupOn(voteOf(all), cfg);
