@@ -32,7 +32,7 @@ export const DEFAULTS = {
   // 为什么可配：不同项目的正常写作密度不同（代码注释比散文短），写死就替使用者定了定义。
   inline: { on: true, min: 12, ratio: 0.25 },
   lang: { on: true, dir: "zh" },
-  strip: { on: true, min: 3 },
+  strip: { on: true, min: 4 },   // 与 dup.min 同步：3 也行，但两个门槛写得不一样，换机器跑结果就不同
   inject: { on: true, texts: { dup: "", lang: "", clean: "", inline: "" } },
   binding: { allowGateway: false },
 } as const;

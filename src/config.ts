@@ -64,7 +64,7 @@ const readRaw = (): Read => {
 };
 
 // 读配置时最后一次读失败的原因，给命令输出用。人改坏了配置文件要能看见。
-let lastProblem: "missing" | "broken" | null = null;
+let lastProblem: "missing" | "broken" | "strip-gt-dup" | null = null;
 export const readProblem = () => lastProblem;
 
 // 文件不在就写一份默认的，写一次之后不再覆盖：用户改过的值不能被启动流程冲掉。
@@ -90,6 +90,11 @@ export const readConfig = () => {
   const raw = r.ok ? r.raw : {};
   const out = {} as Record<string, any>;
   for (const m of MODULES) out[m.name] = m.configure(raw[m.name]);
+  // 跨字段一致性：strip.min（几次才动手删）大于 dup.min（几次判红）时，
+  // 会出现「判红了但删不了」——看着在管，实际一次都没处置。这不是单字段能查出来的。
+  if (!lastProblem && out.strip?.on && out.dup?.on && out.strip.min > out.dup.min) {
+    lastProblem = "strip-gt-dup";
+  }
   return out;
 };
 

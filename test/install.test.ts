@@ -33,6 +33,36 @@ const call = async (pi: any, name: string, event: any = {}) => {
   return out;
 };
 
+// 流式去重（2026-11-23）：message_update 一段思考会来几十帧。每帧判红就记一条，
+// 台账里的「红」于是成了帧数而不是次数——实测同一条 red 连记 5 次（时间戳与 head 全同）。
+// 两条断言：同一文本 4 帧只记 1 条；文本变了才记第 2 条。
+test("同一份思考不重复记账：流式多帧只记一条 red", async () => {
+  const LEDGER = path.join(os.tmpdir(), "curb-test-ledger-" + process.pid + ".jsonl");
+  process.env.PI_THINK_SENTRY_LEDGER = LEDGER;
+  try { fs.rmSync(LEDGER, { force: true }); } catch {}
+  try {
+    resetCooldown();
+    const pi = fakePi();
+    await installGuard(pi);
+    await call(pi, "before_agent_start");
+    const reds = () => {
+      try {
+        return fs.readFileSync(LEDGER, "utf8").trim().split("\n").filter(Boolean)
+          .map((l) => JSON.parse(l)).filter((j: any) => j.ev === "red");
+      } catch { return []; }
+    };
+    // 同一段思考来 4 帧（流式）
+    for (let i = 0; i < 4; i++) await call(pi, "message_update", { message: msgOf(FRAG) });
+    assert.equal(reds().length, 1, "同一文本 4 帧应当只记 1 条 red，实际 " + reds().length);
+    // 改了内容 → 那是新的一次判红，要记
+    await call(pi, "message_update", { message: msgOf(FRAG + "\n（执行）done。") });
+    assert.equal(reds().length, 2, "文本变了应当记第 2 条，实际 " + reds().length);
+  } finally {
+    delete process.env.PI_THINK_SENTRY_LEDGER;
+    try { fs.rmSync(LEDGER, { force: true }); } catch {}
+  }
+});
+
 const FRAG = "读完配置后我把三个阈值都记下来，然后逐条核对它们是不是写在同一个文件里。\n（执行）done。\n（执行）done。\n（执行）done。\n（执行）done。";
 const EN = [
   "I think we should read the file first.",

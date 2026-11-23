@@ -25,7 +25,8 @@ const trace = (tag: string, data: Record<string, unknown> = {}) => {
 // 代码有洞还是进程跑着旧代码。Trace 走 stderr，在 PiDeck 里看不见。
 // 这里把「实际判的原文」与「判决」一起落盘，让矛盾可以读出来，不必再猜。
 // 有界：只在判红与拦截时写，每次会话量的千分之一；文件超过 2MB 就重开。
-const ledgerFile = () => path.join(pluginDir, "ledger", "judgments.jsonl");
+// 台账位置可用环境变量覆盖：与 stateFile 同一写法，测试要把台账指到临时文件才能断言「不虚高」。
+const ledgerFile = () => process.env.PI_THINK_SENTRY_LEDGER || path.join(pluginDir, "ledger", "judgments.jsonl");
 const ledger = (rec: Record<string, unknown>) => {
   try {
     const f = ledgerFile();
@@ -136,6 +137,9 @@ const applyCfg = (c: any) => {
 // 同一次调用里「开关是新配置、判决是旧配置」（实测：手改 dup.min 3→5，仍拦）。
 let lastThink = "";
 let lastV: any = null;
+// 上一次记进台账的判红文本。message_update 是流式的，同一段思考会来几十帧，
+// 不去重就会把帧数当次数（2026-11-23 实测：同一条 red 连记 5 次，时间戳与 head 全同）。
+let lastRedThink = "";
 const refresh = () => {
   const m = statStamp();
   if (m === cfgStamp && cfg) return cfg;
@@ -374,8 +378,16 @@ export default async function installGuard(pi: any) {
     lastV = v;
     if (v && v.kind !== "none") {
       sawRed = true;
-      redFrames.push({ v, think });
-      ledger({ v: VERSION, ev: "red", len: think.length, kind: v.kind, rule: v.rule, reps: v.ev?.reps ?? null, blk: v.ev?.blk ?? null, head: think.slice(0, 160) });
+      // 同一份思考只记一次。message_update 是**流式**的：一段 1268 字符的思考会来几十帧，
+      // 每帧判红就记一条，台账里于是同一条 red 连着出现 5 次（2026-11-23 实测：
+      // 时间戳 16:52:39.36x、len 1268、head 全同）。计数因此虚高，
+      // 「回合 237 / 红 70」读不出真实次数——观察面坏了，判据再好也看不出效果。
+      // 按文本比对去重：内容变了才记（模型真改了思考，那是新的一次判红）。
+      if (think !== lastRedThink) {
+        lastRedThink = think;
+        redFrames.push({ v, think });
+        ledger({ v: VERSION, ev: "red", len: think.length, kind: v.kind, rule: v.rule, reps: v.ev?.reps ?? null, blk: v.ev?.blk ?? null, head: think.slice(0, 160) });
+      }
     }
     trace("hook", { h: "message_update", phase: "out", kind: v?.kind ?? null, tag: v?.tag ?? null, forced: !!v?.forced });
   });

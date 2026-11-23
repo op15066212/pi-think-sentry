@@ -24,6 +24,28 @@ const strip = (await import("../src/features/strip.ts")).default;
 const wipe = () => { try { fs.rmSync(TMP, { force: true }); } catch {} };
 const write = (v) => fs.writeFileSync(TMP, typeof v === "string" ? v : JSON.stringify(v));
 
+// 跨字段一致性：strip.min > dup.min 会「判红了但删不了」——两个字段单独看都合法，
+// 只有放在一起才矛盾。这条判据就是为这种矛盾存在的。
+test("strip.min 大于 dup.min 时报告 strip-gt-dup", async () => {
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const f = path.join(os.tmpdir(), "cfg-gt-" + process.pid + ".json");
+  const prev = process.env.CURB_CONFIG_FILE;
+  try {
+    fs.writeFileSync(f, JSON.stringify({ dup: { min: 3 }, strip: { min: 5 } }));
+    process.env.CURB_CONFIG_FILE = f;
+    const mod = await import("../src/config.ts?gt=" + Date.now());
+    const cfg = mod.readConfig();
+    assert.equal(cfg.dup.min, 3);
+    assert.equal(cfg.strip.min, 5);
+    assert.equal(mod.readProblem(), "strip-gt-dup", "跨字段矛盾要能报出来");
+  } finally {
+    if (prev === undefined) delete process.env.CURB_CONFIG_FILE; else process.env.CURB_CONFIG_FILE = prev;
+    fs.rmSync(f, { force: true });
+  }
+});
+
 test("文件不在时自动建一份默认的", () => {
   wipe();
   ensureConfig();
