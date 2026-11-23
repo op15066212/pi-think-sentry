@@ -43,6 +43,11 @@ v3 覆盖前两版的特例：连续 37 句 uniq=1、交替 AB uniq=2、换词�
 两个清空点必然分叉，所以只留一个。
 判据：`test/empty-frame.test.ts`（2 条）。
 
+**七 代码指纹（判「跑的是哪一版」）。**
+用户三次问「为什么没拦住」，其中一次的真实情况是「改了没重启」——那时没有任何东西能看出来。
+`boot` 日志与 `/think-sentry` 现在都带四个核心文件的 mtime：加载时记一次，查时再读盘，
+不一致即 `code.stale: true`。版本号是手写字符串，改代码不改版本号分不出来，所以另记指纹。
+
 判据：`npm test` 195/195；`test/collapse.test.ts` 11 条、`test/round-clean.test.ts` 2 条、
 `test/no-reflow.test.ts` 3 条、`test/empty-frame.test.ts` 2 条。
 

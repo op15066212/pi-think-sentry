@@ -30,6 +30,19 @@
 判法：`node verify-dtt.mjs`（rc=0）；坏样本 `node verify-dtt.mjs --selftest`（五个坏样本全红）；指纹 `node verify-dtt.mjs --fingerprint`（sha256，与 `SIGN-OFF-DTT.md` 里的一致才算签过）。
 
 这套判法自己的反例：文档长得像规则、每格都填着形容词。`verify-dtt.mjs` 判反例格是否为空、判点名的脚本在不在盘上——形容词能过格，脚本不在盘上过不了。
+## 「没拦住」先看这一行
+
+```bash
+/think-sentry
+# 输出里找 code.stale
+```
+
+`stale: true` 表示**盘上的代码比进程加载时新**——改完没重启，跑的是旧代码。
+这时讨论判据为什么没拦住没有意义，先重启会话。
+
+版本号是手写的字符串，改代码不改版本号就分不出来。现在 boot 日志与命令输出都带代码指纹
+（四个核心文件的 mtime）：加载时记一次，查的时候再读一次盘，不一致就报 stale。
+
 ## 判决什么时候被清空
 
 判决（`lastV`）只有一个清空点：`before_agent_start`（新一轮开始）。

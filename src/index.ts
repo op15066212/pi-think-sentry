@@ -60,6 +60,21 @@ export const stats = {
 const thinkingOf = (msg: any) => (msg?.content || []).filter((c: any) => c?.type === "thinking").map((c: any) => c.thinking || "").join("\n");
 
 const pluginDir = path.join(import.meta.dirname, "..");
+
+// 代码指纹（2026-11-23）：用户问「为什么没拦住」，第一件要排除的是「跑的是旧代码」。
+// 此前只有 VERSION（package.json 里的字符串），改代码不改版本号就分不出来——
+// 而「改了没重启」是最常见的假故障，也是唯一一个不修代码就能好的。
+// 记入口文件与判据文件的 mtime；/think-sentry 再读一次盘上的 mtime 比对。
+const CODE_FILES = ["src/index.ts", "src/judges.ts", "src/verdict.ts", "src/features/strip.ts"];
+const codeStamp = () => {
+  const out = [];
+  for (const f of CODE_FILES) {
+    try { out.push(f + "@" + Math.round(fs.statSync(path.join(pluginDir, f)).mtimeMs)); }
+    catch { out.push(f + "@?"); }
+  }
+  return out.join(" ");
+};
+const LOADED_STAMP = codeStamp();
 /** 日志里带版本：判「跑的到底是哪一版」时，这是唯一自证。 */
 const VERSION = (() => { try { return JSON.parse(fs.readFileSync(path.join(pluginDir, "package.json"), "utf8")).version; } catch { return "?"; } })();
 const stateFile = () => process.env.CURB_STATE_FILE || path.join(pluginDir, "state.json");
@@ -212,6 +227,8 @@ const runCommand = (args: any) => {
     // 人得在这儿看出来，而不是以为改写生效了。
     return JSON.stringify({
       capture: bindingLabel(binding),
+      // stale=true 表示「盘上的代码比加载时新」——那时说「为什么没拦住」没有意义，先重启。
+      code: { loaded: LOADED_STAMP, onDisk: codeStamp(), stale: LOADED_STAMP !== codeStamp() },
       ...stats, lang: c.lang.dir, config: c, file: configFile(),
       problem: readProblem(), rejects: rejectsOf(),
     });
@@ -246,7 +263,7 @@ const runCommand = (args: any) => {
 export default async function installGuard(pi: any) {
   // 启动即留痕（R11）：这一行是「这个进程加载了哪一版」的唯一自证。
   // 没有它的时候，我只能比进程启动时刻与文件修改时刻——那是推断，不是证据。
-  ledger({ v: VERSION, ev: "boot", cwd: import.meta.dirname, config: configFile() });
+  ledger({ v: VERSION, ev: "boot", cwd: import.meta.dirname, config: configFile(), code: LOADED_STAMP });
   ensureConfig();
   applyCfg(readConfig());
   cfgStamp = statStamp();
