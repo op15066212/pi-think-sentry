@@ -78,6 +78,16 @@ v3 覆盖前两版的特例：连续 37 句 uniq=1、交替 AB uniq=2、换词�
 第一次跑就报出真相：**台账 2492 条红，去重后只有 145 次**，虚高 17 倍。
 这也是为什么「去重」那条改动的判据必须建在磁盘文件上，而不是内存计数上。
 
+**十二 机读出口补齐：四个入口两种形状。**
+使用者的问法是「两个插件的（机读）都做了吗」。核对下来四个入口只有 `/think-sentry json` 一个能机读，
+其余三个（`/escape-guard`、两个 CLI）都只有人读——**一个问题四种答案，我一处一处补，就漏了三处**。
+补完的形状是：pi 内 `/x` 与 `/x json`、bash 里 `npm run status` 与 `node bin/status.mjs --json`。
+两条设计约束：
+一是人读与机读从**同一份计算结果**渲染（`statusLines()` 一次算完，两种形状都从它来），
+二是机读给结构化数字（`config.dup.min` 是数字），不逼着对面反过来解析人类那几行。
+判据同时测两个入口——它们走两段不同的代码，测一个不能证明另一个；
+把 `--json` 里的 `config` 字段删掉必须红（验过，红）。
+
 判据：`npm test` 195/195；`test/collapse.test.ts` 11 条、`test/round-clean.test.ts` 2 条、
 `test/no-reflow.test.ts` 3 条、`test/empty-frame.test.ts` 2 条。
 
