@@ -57,7 +57,17 @@ for (const f of ["package.json", "tsconfig.json", "README.md", "settings.json"])
   const p = path.join(ROOT, f);
   if (fs.existsSync(p)) files.push(p);
 }
-const volatileShown = files.filter((abs) => VOLATILE.has(path.basename(abs))).map((abs) => path.relative(ROOT, abs).replace(/\\/g, "/"));
+// 不进总指纹，但要给身份：判红结果取决于 settings.json（prefix.on / run.on /
+// lang.dir / inline.min…）。只给文件名等于「指纹能证明代码是哪一版，证明不了
+// 那一刻跑的是哪套开关」。——2026-11-24 pi 插件2 指的最后一格。
+// 规则与本文件其他数字一致：任何数旁边印上它那份输入的 md5。
+const volatileShown = files
+  .filter((abs) => VOLATILE.has(path.basename(abs)))
+  .map((abs) => {
+    const buf = fs.readFileSync(abs);
+    const h = crypto.createHash("md5").update(buf).digest("hex").slice(0, 8);
+    return path.relative(ROOT, abs).replace(/\\/g, "/") + "  " + h + "  " + buf.length + "B";
+  });
 
 const rows = files.filter((abs) => !VOLATILE.has(path.basename(abs)))
   .map((abs) => {
