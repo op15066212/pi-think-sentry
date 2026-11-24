@@ -240,7 +240,15 @@ export function shapeOf(text: any, cfg: ShapeCfg = {}): Shape {
   // 四 缩进：分档后的集中度
   const ind = topShareOf(rows.map((x) => indentBucket(x.raw)));
   // 五 句首：每句前 2 字（句子比行更细）
-  const sents = prose.flatMap((x) => x.c.split(/[。！？!?]/).map((s) => s.trim()).filter((s) => s.length >= 2));
+  // 每句开头也要剥语法符号。
+  // 2026-11-24 第三轮量出来：17628 段里 413 段命中 shape>=2，其中七段的命中维度都是
+  // 「句首 ** 40~50%」——加粗在句子中间（「现在第三环：**需要 ...」），
+  // stripMdPrefix 只管行首，管不到 split 出来的每一句。
+  const stripSent = (s: string) => s.replace(/^[*_`~]+/, "").replace(/[*_`~]+$/, "").trim();
+  const sents = prose
+    .flatMap((x) => x.c.split(/[。！？!?]/))
+    .map((s) => stripSent(s))
+    .filter((s) => s.length >= 2);
   const sentHead = topShareOf(sents.map((s) => s.slice(0, Math.min(2, s.length))));
   // 六 套话：连续 4 字窗口的集中度（高频短语霸占全篇）
   const grams: string[] = [];

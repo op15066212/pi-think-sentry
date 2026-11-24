@@ -14,7 +14,7 @@
 
 import fs from "node:fs";
 import readline from "node:readline";
-import { judgeThinking } from "../src/judges.ts";
+import { judgeThinking, exciseInjectedForTest } from "../src/judges.ts";
 import { shapeOf } from "../src/algo/shape.ts";
 import { unifiedScore } from "../src/algo/unified.ts";
 import { readConfig } from "../src/config.ts";
@@ -54,12 +54,19 @@ async function scan(file: string): Promise<Row> {
       const v = judgeThinking(t, CFG as any);
       const key = v.kind === "none" ? "none" : String(v.rule);
       row.red[key] = (row.red[key] || 0) + 1;
-      const sh = shapeOf(t, { headMin: c.prefix.min });
+      // 探针必须走与生产同一条路径：先扣掉注入文案与处置标记，再算 shape。
+      // 2026-11-24（pi 插件2 附注 2 引出的自查）：原来直接 shapeOf(t) 是裸调，
+      // 于是命中维度里出现「套话 [外部附」12%——那是插件自己注入的标记，
+      // 不是模型的重复。探针量到的东西不是生产里跑的东西，数字就偏高。
+      const bodyText = exciseInjectedForTest(t, c.inject.on
+        ? [c.inject.texts.dup, c.inject.texts.lang, c.inject.texts.clean].filter(Boolean).join(String.fromCharCode(10))
+        : "");
+      const sh = shapeOf(bodyText, { headMin: c.prefix.min });
       if (sh.votes >= 2) {
         row.shape2plus++;
         if (row.samples.length < 2) row.samples.push(sh.why);
       }
-      const u = unifiedScore(t, c.unified.min);
+      const u = unifiedScore(bodyText, c.unified.min);
       if (u.score < row.scoreMin) row.scoreMin = u.score;
     }
   }
