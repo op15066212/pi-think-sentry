@@ -485,6 +485,25 @@ npm run verify                                                    # rc=0（npm t
 node --experimental-strip-types scripts/check-rules-coverage.mjs   # 7 条规则，0 缺口
 node verify-dtt.mjs                                               # 元理论节齐、四件齐
 ```
+### 配置的「读进来」与「接到判据上」是两件事
+
+实测（`node --experimental-strip-types bin/probe-live-config.mts`）：
+
+8 个键都读进来；dup 与 lang 的开关都已实测接到判据上（含关掉后的证伪）。
+strip / intercept / inject / signature / binding 五个键目前只有「读进来了」这一层，
+接到判据上的证伪未做。
+
+这一条 2026-11-24 走过两次错：
+
+1. 脚本里 `judgeThinking(text, [], cfg)` 传了三个参数，而签名是
+   `judgeThinking(text, patch: Partial<JudgeCfg>)` 两个——第三个被静默忽略，
+   整份脚本一直用默认配置跑，settings 一个键都没验到。
+2. lang 的证伪写成 `v.rule !== "lang"`。langOn=false 时返回 `none("lang")`，
+   那个 none 的 rule 也是 lang。必须看 `kind` 不看 `rule`——
+   这正是早先 lang 误报 77.5% 的同一个 bug，第四次踩。
+
+两次都是「签名没看就调用」与「拿 rule 当 kind」的变体，不是判断错，是没查。
+
 ## 签字是什么
 
 **签字 = 一个指纹 + 一个时刻。两者一起才构成签的对象。**

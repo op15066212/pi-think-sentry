@@ -1,4 +1,9 @@
-// 一次性实测：settings.json 的开关是否真的走到 judgeThinking
+// probe-live-config —— settings.json 的开关是否真的走到 judgeThinking。
+//
+// 2026-11-24 复核方指出它原来叫 bin/live-config-check.mts，不在 check-probes 的
+// probe-* 通配里，所以那 37 行脚本从来没进执行面。改成 probe- 前缀之后
+// check-probes 会要求它「不带参数时 rc 是 0 或 2」——本脚本不带参数就跑完整检查，
+// 全部通过时 rc=0，符合。
 //
 // 2026-11-24 两次写错，都记在下面：
 //   1) 上一版猜错导出名（installGuard 是默认导出，写成了命名导入）→ ERR_MODULE_NOT_FOUND
