@@ -4,6 +4,7 @@ import intercept from "./features/intercept.ts";
 import dup from "./features/dup.ts";
 import lang from "./features/lang.ts";
 import inline from "./features/inline.ts";
+import run from "./features/run.ts";
 import strip from "./features/strip.ts";
 import inject from "./features/inject.ts";
 import bindingMod from "./features/binding.ts";
@@ -11,7 +12,7 @@ import { clearRejects } from "./values.ts";
 
 // 五个功能模块，一个功能一个单例。顺序就是配置文件的顺序。
 // 加功能只需在这里多一行，读写与兜底不用动。
-export const MODULES = [intercept, dup, lang, inline, strip, inject, bindingMod];
+export const MODULES = [intercept, dup, lang, inline, run, strip, inject, bindingMod];
 
 const pluginDir = path.join(import.meta.dirname, "..");
 export const configFile = () => process.env.CURB_CONFIG_FILE || path.join(pluginDir, "settings.json");

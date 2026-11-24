@@ -41,16 +41,17 @@ const bad = (why: any) => { throw new Error("verdict: " + why); };
 const isNum = (x: any) => typeof x === "number" && Number.isFinite(x);
 
 export type Kind = "none" | "strip" | "fold" | "retract";
-export type Rule = "dup" | "inline" | "lang";
+export type Rule = "dup" | "inline" | "lang" | "run";
 
 /** 构造子的穷尽清单。顺序即文档顺序，不再单独维护一份 KINDS 字符串数组。 */
 export const KINDS: readonly Kind[] = ["none", "strip", "fold", "retract"];
 
 /** RuleOf：每个 kind 允许哪些来源。表即证明——不在这张表里的组合 parse 直接抛。 */
 const RULE_OF: Record<Kind, readonly Rule[]> = {
-  none: ["dup", "inline", "lang"],
+  none: ["dup", "inline", "lang", "run"],
   strip: ["dup"],
-  fold: ["inline"],
+  // run 判红时复用 fold：动作一样是折叠重复段，ev 形状与 inline 相同。
+  fold: ["inline", "run"],
   retract: ["lang"],
 };
 
@@ -103,6 +104,9 @@ const CHECK: Record<Rule, (ev: any) => void> = {
   },
   inline(ev: any) {
     checkDups(ev, "句");
+  },
+  run(ev: any) {
+    checkDups(ev, "行");
   },
   lang(ev: any) {
     for (const k of ["cjk", "lat", "lines"]) if (!isNum(ev[k])) bad("ev." + k);

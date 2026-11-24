@@ -54,6 +54,15 @@ id: "inline", kind: "verdict", module: "features/inline.ts",
     消去: "test/ 里句级用例与真实退化回放算同一件事",
     反例: "一段 40 句只有 3 种：占比 7.5% < 25%，判红",
   },
+  // 2026-11-24：整体判据。前两条都先切分（按行、按句），这一条不切分。
+  {
+id: "run", kind: "verdict", module: "features/run.ts",
+    prop: "整段里最长的一条重复 >= run.minLen 时判红（默认 12 字）",
+    形成: "run.on / run.minLen 在 src/defaults.ts（默认 false / 12）",
+    引入: "node --experimental-strip-types --test test/lz77.test.ts；期望 7 条全过、rc=0",
+    消去: "bin/longest-run-probe.mjs 的内置样本与 test/lz77.test.ts 算同一件事",
+    反例: "31 行「做。」：最长匹配 89 >= 12，判红",
+  },
   {
 id: "inject-thinking-only", kind: "mechanism", module: "features/inject.ts",
     prop: "只对 type=thinking 的块动手，别的块原样返回",

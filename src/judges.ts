@@ -1,3 +1,4 @@
+import { longestRun } from "./features/run.ts";
 import { Verdict } from "./verdict.ts";
 import { threshold } from "./threshold.ts";
 import { DEFAULTS } from "./defaults.ts";
@@ -63,6 +64,8 @@ export type JudgeCfg = {
   dupOn: boolean;
   dupMin: number;
   inlineOn: boolean;
+  runOn: boolean;
+  runMinLen: number;
   inlineMin: number;
   inlineRatio: number;
   langOn: boolean;
@@ -80,6 +83,8 @@ export const judgeCfg = (patch: any = {}): JudgeCfg => {
     dupOn: patch.dupOn !== false,
     dupMin: threshold(patch.dupMin, DUP_MIN, "judges.dupMin"),
     inlineOn: patch.inlineOn !== false,
+    runOn: patch.runOn === true,
+    runMinLen: typeof patch.runMinLen === "number" ? patch.runMinLen : 12,
     inlineMin: threshold(patch.inlineMin, INLINE_MIN, "judges.inlineMin"),
     inlineRatio: ratioOf(patch.inlineRatio, INLINE_RATIO),
     langOn: patch.langOn !== false,
@@ -335,6 +340,7 @@ function langOn(lines: Line[], cfg: JudgeCfg) {
   return none("lang", ev);
 }
 
+
 export function judgeThinking(text: any, cfg: JudgeCfg = judgeCfg()) {
   const raw = String(text || "");
   // 仅测试用：强制开关，让 RPC 测试能确定地验证两条链路。
@@ -355,6 +361,18 @@ export function judgeThinking(text: any, cfg: JudgeCfg = judgeCfg()) {
   if (cfg.inlineOn) {
     const q = collapseOn(raw, cfg);
     if (q.kind !== "none") return q;
+  }
+  // 整体判据：不切分，LZ77 一次扫完全文，取最长匹配。
+  // 放在 dup/inline 之后、lang 之前——语言检查是最后一道，不该被整体判据挡住。
+  if (cfg.runOn) {
+    const r = longestRun(raw, cfg.runMinLen);
+    if (r.over) {
+      return Verdict.parse({
+        kind: "fold",
+        rule: "run",
+        ev: { blk: "最长重复 " + r.len + " 字", reps: r.matches.length, why: "len=" + r.len, dups: [], line: 1 },
+      });
+    }
   }
   if (!cfg.langOn) return none("lang", { cjk: 0, lat: 0, lines: 0, dir: cfg.langDir, sample: null });
   return langOn(lines, cfg);
