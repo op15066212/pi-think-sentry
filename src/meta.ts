@@ -73,6 +73,12 @@ id: "shape", kind: "verdict", module: ["features/prefix.ts", "algo/shape.ts"],
     // 2026-11-24：「prefix」不是一个独立判据，它就是这里的行首维度。
     // 配置键名沿用 prefix 是历史原因（这条最初只管行首），规则名统一叫 shape——
     // 一个判据一个名字，否则同一条判据会有两个入口、两份阈值。
+    //
+    // 同一天实测结论：**这条判据量错了对象，默认关闭。**
+    // 6 个会话 17,638 段上它独有捕获 314 段，按行首前缀分组后「务实：」与「关键：」
+    // 在五个量上全部重叠——不是门槛没调好，是「行首词集中」这个信号与「是否退化」
+    // 之间没有因果关系。它真正抓得到的整行重复由 dup 管（probe-shape-delta --selftest A 样本）。
+    // 保留代码是为了让下一个会话看到结论，而不是重新发明它。
     形成: "prefix.on / prefix.min 在 src/defaults.ts（默认 false / 0.5）。键名沿用 prefix，因为它最初只管行首",
     引入: "node --experimental-strip-types --test test/shape.test.ts；期望 8 条全过、rc=0",
     消去: "bin/probe-shape.mjs 的三个退化样本与两个正常样本各得几票，与 test/shape.test.ts 算同一件事",
