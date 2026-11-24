@@ -1,4 +1,5 @@
 import { longestRun } from "./features/run.ts";
+import { buildAC, excise } from "./algo/aho-corasick.ts";
 import { Verdict } from "./verdict.ts";
 import { threshold } from "./threshold.ts";
 import { DEFAULTS } from "./defaults.ts";
@@ -103,6 +104,28 @@ const dropInjectedTail = (ls: Line[], skip: string[]): Line[] => {
   for (let i = 0; i < n; i++) if (tail[i].t !== skip[i]) return ls;
   return ls.slice(0, ls.length - n);
 };
+
+/**
+ * 按内容扣除注入文本（2026-11-24，整体化）。
+ *
+ * 旧的 dropInjectedTail 只剥**末尾那几行**，且要求逐字相同。模型把标记抄到中间、
+ * 改一个标点、拆成两行，就全都失效——而它抄的仍然是同一次注入的内容。
+ *
+ * 这里把「我注入过的每一段」建成自动机，一次扫过全文，命中即按**字符区间**挖掉。
+ * 与正则的分工：正则是「我生成的标记长什么样」（含具体数字，自动机存不下），
+ * 自动机是「我注入过的那些字」（逐字，与格式无关）。两者都要，各管一件。
+ */
+// 测试入口：同一个函数，只是给外面一个名字。不复制实现——
+// 两处各写一遍，测的就不是跑的那一个了。
+export const exciseInjectedForTest = (t: string, skip: readonly string[]) => exciseInjected(t, skip);
+function exciseInjected(text: string, skip: readonly string[]): string {
+  const pats = skip.filter((x) => typeof x === "string" && x.length >= 4);
+  if (!pats.length) return text;
+  const ac = buildAC(pats);
+  const hits = ac.scan(text);
+  if (!hits.length) return text;
+  return excise(text, hits);
+}
 
 const none = (rule: any, ev: any) => Verdict.parse({ kind: "none", rule, ev });
 
@@ -352,7 +375,10 @@ export function judgeThinking(text: any, cfg: JudgeCfg = judgeCfg()) {
   }
   // 处置标记在任何判据里都不算内容：dup 按整行计数，6 行相同的折叠标记会被判成「复诵 6 次」——
   // 那等于「处置自己制造了下一次判红」，是最典型的回灌。
-  const all = dropInjectedTail(partitionLines(raw), cfg.skip).filter((l) => !MARK_RE.test(l.t));
+  // 先按内容扣（任意位置），再按行剥末尾（保底），最后滤掉标记行。
+  // 三层顺序固定：内容扣得最干净，标记行过滤最便宜，末尾剥是历史行为的兜底。
+  const body = exciseInjected(raw, cfg.skip);
+  const all = dropInjectedTail(partitionLines(body), cfg.skip).filter((l) => !MARK_RE.test(l.t));
   const lines = voteOf(all);
   if (cfg.dupOn) {
     const d = dupOn(voteOf(all), cfg);
