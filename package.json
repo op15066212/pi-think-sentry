@@ -13,7 +13,8 @@
     "check:docs": "node scripts/check-doc-accuracy.mjs",
     "e2e": "node --experimental-strip-types scripts/e2e-real.mjs",
     "status": "node bin/status.mjs",
-    "kgram": "node bin/probe-kgram.mjs"
+    "kgram": "node bin/probe-kgram.mjs",
+    "verify": "npm test && node scripts/gate.mjs"
   },
   "pi": {
     "extensions": [
