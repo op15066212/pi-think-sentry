@@ -39,6 +39,36 @@
 所以处置走 `dedupByLz`：用**同一次** LZ77 解析的 `deduped` 结果去折叠。
 不是「判一套、改一套」，是同一份证据的两种用法。
 
+### inline 判据：按真实数据重写的那一次
+
+旧实现是 `collapseRange`：O(n²) 找「最长的一段**连续**句子，其中不同句占比 ≤ ratio」。
+
+**它在真实数据上几乎不起作用**（50641 段里只命中 129 段，0.3%）。拿 dup 命中当金标准（3384 段），
+它漏掉 3143 段——**真实重复是散落的**，连续区间凑不够长度。
+
+三个候选量实测（3384 段金标准 vs 43403 段未标记）：
+
+| 量 | 金标准 p50 | 未标记 p50 | 结论 |
+|---|---|---|---|
+| `uniqRatio` | 0.750 | 1.000 | **差**，阈值 0.5 只抓到 9%——原判据的核心量不管用 |
+| `topShare` | 0.222 | 0.079 | **好**，2.8 倍差距 |
+| `repeatCover` | 0.324 | 0.000 | 好，但不是所有退化都有「大半是重复」 |
+
+现在的判据：**`topShare ≥ 0.3` 或 `repeatCover ≥ 0.5`**。
+实测金标准命中 33.9%，未标记命中 7.0%（比值 4.8）。复杂度 O(n)。
+
+**回放验证**：inline 从 0.3% → **6.4%**（129 → 3233 段），21 倍；两条以上同时命中 0.6% → 2.5%。
+
+复现：
+
+```bash
+node --experimental-strip-types bin/diagnose-inline.mjs ~/.pi/agent/sessions   # 为什么漏
+node --experimental-strip-types bin/probe-inline.mjs ~/.pi/agent/sessions      # 三个量哪个能分
+```
+
+**`collapseRange` 保留但已不在主路径上**：它有自己的测试，且「连续区间」是另一种形状。
+当前判据走 `features/collapse.ts` 的 `collapseStats`。
+
 ### 历史回放：真实数据比造样本可信
 
 `bin/replay-history.mjs` 把会话记录里的思考段喂给三条判据，各开各的（不走短路链）。
