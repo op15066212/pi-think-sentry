@@ -61,3 +61,17 @@ test("规则 id 唯一且非空", async () => {
   assert.ok(ids.length === RULES.length, "每条规则都该有 id，实际有 " + ids.length + " / " + RULES.length);
   assert.equal(new Set(ids).size, ids.length, "id 有重复：" + ids.join("、"));
 });
+
+// 证明项必须精确到这一条（P20 的 2026-11-24 补）：跑全量测试，红了只知道「有一处红」。
+// 所以「引入」格必须是单文件命令，不许是 npm test。
+test("每条规则的引入是单文件精确命令，不是批次命令", async () => {
+  const { RULES } = await import("../src/meta.ts");
+  for (const r of RULES) {
+    const s = String(r.引入 || "");
+    assert.ok(
+      /--test test\/[\w-]+\.test\.ts/.test(s),
+      (r.id || "(无 id)") + " 的引入不是单文件命令：" + s,
+    );
+    assert.ok(!/npm test/.test(s), (r.id || "(无 id)") + " 用了批次命令 npm test：" + s);
+  }
+});
