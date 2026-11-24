@@ -1,3 +1,4 @@
+import { lz77 } from "../algo/lz77.ts";
 import { stripDupLines } from "../cut.ts";
 import { threshold } from "../threshold.ts";
 import { asBool } from "../values.ts";
@@ -23,6 +24,30 @@ const STRIP_MIN: number = DEFAULTS.strip.min;
 //
 // 指针为什么带数字：模型下一轮会读到这个折叠标记。`[ok。 ×13]` 是**可核对的事实**
 // （13 次），不像原始退化文本那样可以无限自我强化。它可数、不可再复制。
+/**
+ * 整体去重：对每个 thinking 块跑一次 LZ77，把重复段折成可数的指针。
+ *
+ * 与 foldInline 的分工：
+ *   foldInline 要行号（判据告诉它「第几行起了哪些重复」），只在行内折叠；
+ *   dedupByLz 不要行号——它自己扫一遍就知道哪里重复，因为 run 判据本来就是那么判的。
+ * 两者都留：dup/inline 判出来的重复位置是行/句级的，比 LZ 更准；
+ * run 判出来的只有长度，没有位置，所以用 LZ 自己的解析。
+ */
+function dedupByLz(source: any[], floor: number) {
+  let touched = 0;
+  const out = source.map((b: any) => {
+    if (!b || b.type !== "thinking" || typeof b.thinking !== "string") return b;
+    const r = lz77(b.thinking);
+    if (r.longest < floor) return b;
+    if (r.deduped === b.thinking) return b;
+    touched++;
+    return { ...b, thinking: r.deduped };
+  });
+  // 与 foldInline / stripDupLines 同一个返回契约：{ content, cleaned }。
+  // cleaned 是数字不是布尔——上层用它决定「说没说处置过」，0 与 false 的区分在这儿。
+  return { content: touched ? out : source, cleaned: touched };
+}
+
 function foldInline(source: any[], v: any, floor: number) {
   const ev = v?.ev || {};
   const lineFrom = Number(ev.line);
@@ -77,6 +102,10 @@ export default {
     // 漏改这里会在编译期报 `never` 不可赋值。
     switch (v?.kind) {
       case "fold":
+        // run 判据的 ev 没有行号：它判的是「最长的一条重复有多长」，不是「哪一行重复了」。
+        // 所以不能走 foldInline（那需要行号），改用 LZ 自己的去重结果——
+        // 与判定同源：判出「最长的匹配」和「把匹配折掉」用的是同一次解析，不是两套逻辑。
+        if (v?.rule === "run") return dedupByLz(source, floor);
         return foldInline(source, v, floor);
       case "strip":
         break;

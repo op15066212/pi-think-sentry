@@ -117,9 +117,11 @@ const dropInjectedTail = (ls: Line[], skip: string[]): Line[] => {
  */
 // 测试入口：同一个函数，只是给外面一个名字。不复制实现——
 // 两处各写一遍，测的就不是跑的那一个了。
-export const exciseInjectedForTest = (t: string, skip: readonly string[]) => exciseInjected(t, skip);
-function exciseInjected(text: string, skip: readonly string[]): string {
-  const pats = skip.filter((x) => typeof x === "string" && x.length >= 4);
+export const exciseInjectedForTest = (t: string, skip: readonly string[] | undefined) => exciseInjected(t, skip);
+function exciseInjected(text: string, skip: readonly string[] | undefined): string {
+  // skip 可能没给：judgeCfg() 一定有，但调用方直接传部分 cfg 时会是 undefined。
+  // 崩在这儿比判错更糟——判据抛异常，上层只能记 judgeErrors，看不出是哪一条判据坏的。
+  const pats = (Array.isArray(skip) ? skip : []).filter((x) => typeof x === "string" && x.length >= 4);
   if (!pats.length) return text;
   const ac = buildAC(pats);
   const hits = ac.scan(text);
@@ -364,8 +366,17 @@ function langOn(lines: Line[], cfg: JudgeCfg) {
 }
 
 
-export function judgeThinking(text: any, cfg: JudgeCfg = judgeCfg()) {
+export function judgeThinking(text: any, patch: Partial<JudgeCfg> = {}) {
+  // 入口补全，不是只在没传时用默认值。
+  // 之前签名是 cfg: JudgeCfg = judgeCfg()：传了部分配置就用部分的，
+  // langDir 这类必填字段是 undefined，Verdict.parse 当场抛
+  // （verdict: ev.dir 只能是 zh 或 en）。判据抛异常比判错更难查——
+  // 上层只记 judgeErrors，看不出是哪一条坏的。
+  const cfg: JudgeCfg = judgeCfg(patch as any);
   const raw = String(text || "");
+  // cfg 可能是部分配置（测试常用）：skip 没给时按空数组算。
+  // 入口规范化一次，下游的 exciseInjected 与 dropInjectedTail 就不必各自防一遍。
+  const skip: string[] = Array.isArray((cfg as any).skip) ? (cfg as any).skip : [];
   // 仅测试用：强制开关，让 RPC 测试能确定地验证两条链路。
   if (process.env.CURB_FORCE_STRIP && (raw.trim().length > 0 || process.env.CURB_FORCE_EMPTY)) {
     return Verdict.parse({ kind: "strip", rule: "dup", forced: true, ev: { blk: "x", reps: 99, why: "forced", dups: [["x", 99, [0]]] } });
@@ -375,23 +386,20 @@ export function judgeThinking(text: any, cfg: JudgeCfg = judgeCfg()) {
   }
   // 处置标记在任何判据里都不算内容：dup 按整行计数，6 行相同的折叠标记会被判成「复诵 6 次」——
   // 那等于「处置自己制造了下一次判红」，是最典型的回灌。
-  // 先按内容扣（任意位置），再按行剥末尾（保底），最后滤掉标记行。
-  // 三层顺序固定：内容扣得最干净，标记行过滤最便宜，末尾剥是历史行为的兜底。
-  const body = exciseInjected(raw, cfg.skip);
-  const all = dropInjectedTail(partitionLines(body), cfg.skip).filter((l) => !MARK_RE.test(l.t));
+  // 按行剥末尾（保底）与滤标记行：body 已经在上面扣过一次内容了。
+  // 三层分工固定：内容扣得最干净（任意位置），末尾剥是历史行为兜底，标记行过滤最便宜。
+  // 先扣掉注入文本，再判（2026-11-24 修）：run 一开始用的是 raw，
+  // 于是我们自己注入的文案被当成退化——防回灌被整体判据绕过去了，直接自锁。
+  // 顺序必须是「先扣后判」，不是「先判后扣」。
+  const body = exciseInjected(raw, skip);
+
+  const all = dropInjectedTail(partitionLines(body), skip).filter((l) => !MARK_RE.test(l.t));
   const lines = voteOf(all);
-  if (cfg.dupOn) {
-    const d = dupOn(voteOf(all), cfg);
-    if (d.kind !== "none") return d;
-  }
-  if (cfg.inlineOn) {
-    const q = collapseOn(raw, cfg);
-    if (q.kind !== "none") return q;
-  }
-  // 整体判据：不切分，LZ77 一次扫完全文，取最长匹配。
-  // 放在 dup/inline 之后、lang 之前——语言检查是最后一道，不该被整体判据挡住。
+  // 整体判据先跑（2026-11-24 修）：它比 dup/inline 更准——不切分，一次扫描取最长匹配。
+  // 原来放在它们之后，于是 31 行「做。」先被 dup 判红，run 永远轮不到。
+  // 「更准的先判」不是效率问题：先判的那条决定了 ev 的形状，也就决定了处置怎么走。
   if (cfg.runOn) {
-    const r = longestRun(raw, cfg.runMinLen);
+    const r = longestRun(body, cfg.runMinLen);
     if (r.over) {
       return Verdict.parse({
         kind: "fold",
@@ -399,6 +407,14 @@ export function judgeThinking(text: any, cfg: JudgeCfg = judgeCfg()) {
         ev: { blk: "最长重复 " + r.len + " 字", reps: r.matches.length, why: "len=" + r.len, dups: [], line: 1 },
       });
     }
+  }
+  if (cfg.dupOn) {
+    const d = dupOn(voteOf(all), cfg);
+    if (d.kind !== "none") return d;
+  }
+  if (cfg.inlineOn) {
+    const q = collapseOn(raw, cfg);
+    if (q.kind !== "none") return q;
   }
   if (!cfg.langOn) return none("lang", { cjk: 0, lat: 0, lines: 0, dir: cfg.langDir, sample: null });
   return langOn(lines, cfg);

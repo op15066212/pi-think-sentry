@@ -71,7 +71,7 @@ test("投影的每个字段都有边：langDir 决定守哪边", async () => {
 
 test("投影的每个字段都有边：注入文案会被判据剥掉", async () => {
   const tpl = "每轮写一行留痕";
-  fs.writeFileSync(CFG, JSON.stringify({ inject: { on: true, text: tpl } }));
+  fs.writeFileSync(CFG, JSON.stringify({ inject: { on: true, texts: { dup: tpl } } }));
   const p = fakePi();
   await installGuard(p);
   await call(p, "before_agent_start", {});
@@ -80,7 +80,7 @@ test("投影的每个字段都有边：注入文案会被判据剥掉", async ()
   assert.ok(!out.some((x: any) => x && x.block), "注入的文案不算复诵，判据要剥掉它（自锁的另一半）");
 
   // 对照：inject 关掉之后同一段文本就是真复诵
-  fs.writeFileSync(CFG, JSON.stringify({ inject: { on: false, text: tpl } }));
+  fs.writeFileSync(CFG, JSON.stringify({ inject: { on: false, texts: { dup: tpl } } }));
   const p2 = fakePi();
   await installGuard(p2);
   await call(p2, "before_agent_start", {});
