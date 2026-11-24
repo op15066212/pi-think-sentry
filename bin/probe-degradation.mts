@@ -1,6 +1,6 @@
 
 import fs from "node:fs";
-import { judgeThinking } from "./src/judges.ts";
+import { judgeThinking } from "../src/judges.ts";
 
 const f = process.argv[2];
 const raw = fs.readFileSync(f, "utf8");
@@ -25,7 +25,7 @@ for (const l of lines) {
 console.log("文件：" + f.split("\\").pop());
 console.log("思考段：" + thinks.length + " 个\n");
 
-import { readConfig } from "./src/config.ts";
+import { readConfig } from "../src/config.ts";
 // 出厂默认 = index.ts 那套投影（applyCfg 里逐字段传进 judgeCfg 的东西）。
 // 手写 { dupOn:true, inlineOn:true, langOn:true } 测的不是出厂配置，是「我以为的出厂配置」。
 const c = readConfig();
