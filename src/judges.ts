@@ -1,5 +1,22 @@
 import { longestRun } from "./features/run.ts";
 import { buildAC, excise } from "./algo/aho-corasick.ts";
+import { collapseStats } from "./features/collapse.ts";
+import { SENT_RE, MARK_RE, sentencesOf } from "./sentences.ts";
+// 对外仍从 judges 导出：调用方不必知道我把它挪去了哪个文件。
+export { MARK_RE, sentencesOf };
+const ratioOf = (v: any, dflt: number) => {
+  if (v === undefined) return dflt;
+  const n = Number(v);
+  if (!(Number.isFinite(n) && n > 0 && n < 1)) throw new Error("ratio 必须在 (0,1) 之间，实际 " + String(v));
+  return n;
+};
+
+
+export const INLINE_RATIO: number = DEFAULTS.inline.ratio;
+export const COLLAPSE_RATIO = INLINE_RATIO;
+export const COLLAPSE_MIN_LEN = 12;
+
+
 import { Verdict } from "./verdict.ts";
 import { threshold } from "./threshold.ts";
 import { DEFAULTS } from "./defaults.ts";
@@ -186,46 +203,6 @@ function dupOn(lines: Line[], cfg: JudgeCfg) {
 // 反例（必须不判）：正文里写「做完。跑。看。」这类三步式短句，只有 3 句，L < MIN_LEN。
 // 门槛：RATIO=1/4、MIN_LEN=12。MIN_LEN 取 12 是因为：12 句里最多允许 3 种不同句，
 // 正常写作几乎不可能；而退化段实测 200~480 句、uniq 个位数，远远超过门槛。
-const SENT_RE = /[^。！？!?]+[。！？!?]+|[^。！？!?]+$/g;
-
-// 两种处置标记的形状（写在生成它们的地方：strip.ts 的 foldInline 与 stripDupLines）。
-// 放在这里是因为判据要跳过它们——标记不是思考内容，是插件自己的话。
-const MARK_RE = /^\[\d+ 句、共 \d+-\d+ 行坍缩成 \d+ 种，已折叠\]$|^\[原第 \d+-\d+ 行共 \d+ 行，全部重复已删\]$/;
-/** 比例门槛：与 threshold（整数）分开，因为 0<r<1 与 ≥1 是两种取值域。 */
-function ratioOf(raw: any, dflt: number): number {
-  if (raw === undefined || raw === null) return dflt;
-  const n = Number(raw);
-  if (!(Number.isFinite(n) && n > 0 && n < 1)) {
-    throw new Error("judges.inlineRatio 必须在 (0,1) 之间，实际 " + String(raw));
-  }
-  return n;
-}
-
-export const INLINE_RATIO: number = DEFAULTS.inline.ratio;
-export const COLLAPSE_RATIO = INLINE_RATIO;
-export const COLLAPSE_MIN_LEN = 12;
-
-export function sentencesOf(text: any, skip: string[] = []) {
-  const out: { t: string; li: number }[] = [];
-  String(text || "").split("\n").forEach((ln: string, li: number) => {
-    const t = ln.trim();
-    // 注入文案不算思考内容（自锁的另一半）：walking.test 的用例是「同一句注入 4 次」，
-    // 若不跳过，坍缩判据会把自己注入的提醒当成退化来源，判红→再注入→再判红。
-    // 行号仍按原文计（li 是原始行索引），所以折叠定位不受影响。
-    if (skip.length && skip.includes(t)) return;
-    // 处置标记也不算（2026-11-23，防回灌的第二半）：
-    // 折叠后的那一行 `[40 句、共 3-3 行坍缩成 3 种，已折叠]` 会被模型读到、可能被抄。
-    // 抄来的标记如果计入统计，它自己就成了「一种句子」，下一轮再抄一次就变成两种——
-    // 越抄越多，等于回灌。这里按形状排除两种标记（fold 的折叠 / strip 的删行）。
-    if (MARK_RE.test(t)) return;
-    const m = ln.match(SENT_RE) || [];
-    for (const raw of m) {
-      const t = String(raw).trim();
-      if (t) out.push({ t, li });
-    }
-  });
-  return out;
-}
 
 /** 最长坍缩区间：整段里任意连续区间，只要 uniq/len ≤ ratio 且 len ≥ minLen，取最长。
  *
@@ -303,32 +280,47 @@ export function collapseRange(text: any, ratio = COLLAPSE_RATIO, minLen = COLLAP
   };
 }
 
+/**
+ * 句级坍缩（2026-11-24 重写）。
+ *
+ * 旧实现用 collapseRange：O(n²) 找「最长的一段连续句子，其中不同句占比 <= ratio」。
+ * 真实数据上它只覆盖 0.3%（50641 段里 129 段）；拿 dup 命中当金标准（3384 段），
+ * 它漏掉 3143 段——因为真实重复是**散落**的，连续区间凑不够长度。
+ *
+ * 新实现走 features/collapse.ts 的 collapseStats：一次扫描算两个全局量，
+ *   topShare     最高频那一句占全部句子的比例（金标准 p50 0.222 vs 未标记 0.079）
+ *   repeatCover  出现 >= 2 次的句子覆盖的句子数 / 总句数
+ * 判据：topShare >= 0.3 或 repeatCover >= 0.5。实测金标准命中 33.9%、未标记 7.0%。
+ *
+ * 复杂度从 O(n²) 降到 O(n)。ev 形状不变，所以 strip 的 foldInline 不用改。
+ */
 function collapseOn(text: any, cfg: JudgeCfg) {
-  // minLen 与「门槛」不是一回事：
-  //   COLLAPSE_MIN_LEN=12 是**判据成立的下限**（少于 12 句，uniq/len 的统计没有意义——
-  //   4 句全同是 25%，但正常写作里「做。做。做。做。」并不构成退化）。
-  //   inline.min 是使用者可以调**更严**的门槛（默认等于下限）。
-  // 2026-11-23：第一版直接把 inlineMin 当 minLen 传，于是 4 行重复就判红，
-  // 连带三条原有用例（dup 关掉时不该拦）一起挂——那是判据把「开关」当成了「尺度」。
   const minLen = Math.max(COLLAPSE_MIN_LEN, cfg.inlineMin);
-  const c = collapseRange(text, cfg.inlineRatio, minLen, cfg.skip || []);
-  if (!c) return none("inline", { blk: null, reps: 0, why: "未坍缩", dups: [], line: null });
-  const ev = {
-    blk: c.sample,
-    reps: c.unique == 0 ? 0 : Math.round(c.len / c.unique),  // 平均每个不同句重复几轮
-    why: c.len + " 句里只有 " + c.unique + " 种（" + Math.round(c.ratio * 100) + "%）" + (c.truncated ? "（已截断）" : ""),
-    // 与 dup 同形，供 strip 定位：这里 [句, 次数, [行号]] 里的「行号」是起始行。
-    dups: [[c.sample, c.len, [c.line - 1]] as [string, number, number[]]],
-    line: c.line,
-    lineTo: c.lineTo,
-    scope: "collapse" as const,
-    from: c.from,
-    len: c.len,
-    unique: c.unique,
-    ratio: c.ratio,
-    truncated: !!c.truncated,
-  };
-  return Verdict.parse({ kind: "fold", rule: "inline", ev });
+  const c = collapseStats(text, cfg.skip || []);
+  // 句数太少时两个比例都没有统计意义：4 句全同是 100%，但正常写作里那样并不构成退化。
+  if (c.n < minLen) return none("inline", { blk: null, reps: 0, why: "句数 " + c.n + " 不足 " + minLen, dups: [], line: null });
+  if (!c.collapsed) return none("inline", { blk: null, reps: 0, why: c.why, dups: [], line: null });
+
+  const reps = c.n > 0 && c.uniq > 0 ? Math.round(c.n / c.uniq) : 0;
+  return Verdict.parse({
+    kind: "fold",
+    rule: "inline",
+    ev: {
+      blk: c.topSentence,
+      reps,
+      why: c.why,
+      // 与 dup 同形，供 strip 定位：这里是「最高频那一句 + 它的行号」
+      dups: [[c.topSentence, reps, [c.topLine]] as [string, number, number[]]],
+      line: c.topLine + 1,
+      lineTo: c.topLine + 1,
+      scope: "collapse" as const,
+      from: 0,
+      len: c.n,
+      unique: c.uniq,
+      ratio: c.topShare,
+      truncated: false,
+    },
+  });
 }
 
 const countCjk = (s: any) => (s.match(/[\u3400-\u4dbf\u4e00-\u9fff]/g) || []).length;
