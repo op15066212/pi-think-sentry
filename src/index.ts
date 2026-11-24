@@ -124,8 +124,15 @@ const syncBinding = (ctx: any, c: any) => {
 };
 const applyCfg = (c: any) => {
   cfg = c;
+  // 2026-11-24 修：这里此前只传了 dupOn 与 langOn，于是 run / prefix(shape) / unified
+  // 三个开关即使配置里写了 on:true 也不会生效——判据写了、测了，生产里从没跑过。
+  // 「配好了 ≠ 生效了」这一条在插件内部同样成立。
   jcfg = judgeCfg({
     dupOn: c.dup.on, dupMin: c.dup.min,
+    inlineOn: c.inline.on, inlineMin: c.inline.min, inlineRatio: c.inline.ratio,
+    runOn: c.run.on, runMinLen: c.run.minLen,
+    prefixOn: c.prefix.on, prefixMin: c.prefix.min,
+    unifiedOn: c.unified.on, unifiedMin: c.unified.min,
     langOn: c.lang.on, langDir: c.lang.dir, boundaryMinExempt: c.intercept.boundaryMinExempt,
     // 三份模板都要剥：judgeCfg 按换行切，所以 join 成一行（传数组会被 String() 变成逗号拼接）。
       skip: c.inject.on ? [c.inject.texts.dup, c.inject.texts.lang, c.inject.texts.clean].filter(Boolean).join(String.fromCharCode(10)) : "",

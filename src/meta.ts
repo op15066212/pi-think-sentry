@@ -18,7 +18,9 @@ export interface Rule {
   /** verdict = 产生判决的判据；mechanism = 机制约束（不产生 rule）。 */
   readonly kind?: "verdict" | "mechanism";
   /** 这条规则约束的文件（相对 src/），判据会验它存在。 */
-  readonly module?: string;
+  // 一条判据常常由两件组成：配置单元（features/xxx.ts）与实现（algo/xxx.ts）。
+  // 只允许一个字符串时，实现那一侧无法被点名，check-rules-coverage 就漏掉它。
+  readonly module?: string | readonly string[];
   readonly prop: string;
   readonly 形成: string;
   readonly 引入: string;
@@ -47,7 +49,7 @@ id: "lang", kind: "verdict", module: "features/lang.ts",
   // meta 原来只声明了两个——inline 这条判据存在、有测试、在跑，却没进规则表。
   // 「规则集闭合」不是修辞：产出里有的，声明里必须也有，否则四件永远缺一件。
   {
-id: "inline", kind: "verdict", module: "features/inline.ts",
+id: "inline", kind: "verdict", module: ["features/inline.ts", "features/collapse.ts"],
     prop: "一段内不同句占比 < inline.ratio 且句数 ≥ inline.min 时判红",
     形成: "inline.min / inline.ratio 在 src/defaults.ts（默认 12 / 0.25）",
     引入: "node --experimental-strip-types --test test/collapse.test.ts；期望 11 条全过、rc=0",
@@ -66,12 +68,26 @@ id: "run", kind: "verdict", module: "features/run.ts",
   // 2026-11-24：结构特征六维投票。前三条判据都看不见「形状」——
   // 截图那段每行以「务实：」开头，dup/inline/run 三条一条都不判。
   {
-id: "shape", kind: "verdict", module: "algo/shape.ts",
+id: "shape", kind: "verdict", module: ["features/prefix.ts", "algo/shape.ts"],
     prop: "行首/行尾/行长/缩进/句首/套话 六个维度里越线 >= 2 个时判红",
+    // 2026-11-24：「prefix」不是一个独立判据，它就是这里的行首维度。
+    // 配置键名沿用 prefix 是历史原因（这条最初只管行首），规则名统一叫 shape——
+    // 一个判据一个名字，否则同一条判据会有两个入口、两份阈值。
     形成: "prefix.on / prefix.min 在 src/defaults.ts（默认 false / 0.5）。键名沿用 prefix，因为它最初只管行首",
     引入: "node --experimental-strip-types --test test/shape.test.ts；期望 8 条全过、rc=0",
     消去: "bin/probe-shape.mjs 的三个退化样本与两个正常样本各得几票，与 test/shape.test.ts 算同一件事",
     反例: "截图那段 18 行全部以「务实：」开头：行首 100% + 句首 95% = 2 票，判红",
+  },
+  // 2026-11-24：归一化整体判断。前六条各自切分（按行、按句、按 n-gram），
+  // 这一条不切分：把整段看成一张图 + 一个转移矩阵 + 一个置换群 + 一组子结构，
+  // 四个量天然在 [0,1]，几何平均成一个分，只需要一个门槛。
+  {
+id: "unified", kind: "verdict", module: ["features/unified.ts", "algo/unified.ts"],
+    prop: "群论 1/p、转移熵、最高频句占比、3/4-gram 重复率 四维几何平均 < 0.60 时判红",
+    形成: "minScore 默认 0.60，出自实测间隙：退化 <=0.48，正常 >=0.80，中间没有样本",
+    引入: "node --experimental-strip-types --test test/unified.test.ts；期望 19 条全过、rc=0。其中 5 条从 judgeThinking 入口进，专门挡「写了没接线」",
+    消去: "用加权和替代几何平均，截图那段从 0.48 变成 0.59 越线变绿——两种合成给出不同判决，说明合成方式是真值来源，不是修辞",
+    反例: "18 行全以「务实：」开头：前三维奇高，只有 n-gram 重复率 0.80，几何平均 0.48 < 0.60，判红",
   },
   {
 id: "inject-thinking-only", kind: "mechanism", module: "features/inject.ts",

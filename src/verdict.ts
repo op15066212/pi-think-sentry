@@ -41,17 +41,21 @@ const bad = (why: any) => { throw new Error("verdict: " + why); };
 const isNum = (x: any) => typeof x === "number" && Number.isFinite(x);
 
 export type Kind = "none" | "strip" | "fold" | "retract";
-export type Rule = "dup" | "inline" | "lang" | "run" | "prefix" | "shape";
+// prefix 曾经是一个规则名，但它就是 shape 的行首维度（配置键名沿用旧名）。
+// 一个判据两个入口 = 同一真值两处各写一遍，所以名字收成一个：shape。
+export type Rule = "dup" | "inline" | "lang" | "run" | "shape" | "unified";
 
 /** 构造子的穷尽清单。顺序即文档顺序，不再单独维护一份 KINDS 字符串数组。 */
 export const KINDS: readonly Kind[] = ["none", "strip", "fold", "retract"];
 
 /** RuleOf：每个 kind 允许哪些来源。表即证明——不在这张表里的组合 parse 直接抛。 */
 const RULE_OF: Record<Kind, readonly Rule[]> = {
-  none: ["dup", "inline", "lang", "run", "prefix", "shape"],
+  none: ["dup", "inline", "lang", "run", "shape", "unified"],
   strip: ["dup"],
   // run 判红时复用 fold：动作一样是折叠重复段，ev 形状与 inline 相同。
-  fold: ["inline", "run", "prefix", "shape"],
+  // unified 判红时复用 fold：四个量合成一个分，动作仍是「把重复的部分折成一句」，
+  // 不是 lang 那种「整段撤回重想」——退化的内容还在，只是重复了。
+  fold: ["inline", "run", "shape", "unified"],
   retract: ["lang"],
 };
 
@@ -105,10 +109,10 @@ const CHECK: Record<Rule, (ev: any) => void> = {
   inline(ev: any) {
     checkDups(ev, "句");
   },
-  run(ev: any) {
-    checkDups(ev, "行");
+  unified(ev: any) {
+    checkDups(ev, "句");
   },
-  prefix(ev: any) {
+  run(ev: any) {
     checkDups(ev, "行");
   },
   shape(ev: any) {

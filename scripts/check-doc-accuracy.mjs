@@ -48,18 +48,31 @@ for (const f of ["config.ts", "defaults.ts"]) {
 export function keysIn(text) {
   const keys = new Set();
   const T = String.fromCharCode(96);
+  // 2026-11-24：原来「任何表格首格」都当配置键，于是 README 里算法度量名
+  // （uniqRatio / topShare / repeatCover）、函数名（judgeThinking）、模块名（intercept.reason）
+  // 全被报成「配置键不存在」——9 处误报，判据恒假红，红久了就没人看。
+  // 现在只有两种来源算配置键：
+  //   ① 「配置」小节里的表格首格（标题含 配置/设置/键）
+  //   ② 全文的 JSON 块 "key":（这个形状没有歧义）
+  let inCfg = false;
   for (const line of text.split(/\r?\n/)) {
-    // 表格首格：| `key` | ...
-    if (line.startsWith("|")) {
+    if (/^#{1,6}\s/.test(line)) {
+      inCfg = /配置|设置|键/.test(line);
+      continue;
+    }
+    if (inCfg && line.startsWith("|")) {
       const cell = line.slice(1).split("|")[0].trim();
       if (cell.length > 2 && cell.startsWith(T) && cell.endsWith(T)) {
         const k = cell.slice(1, -1).trim();
         if (/^[a-z][a-zA-Z0-9_.]*$/.test(k)) keys.add(k);
       }
     }
-    // JSON 块：  "key":
-    const j = line.match(/^\s*"([a-z][a-zA-Z0-9_]*)"\s*:/);
-    if (j) keys.add(j[1]);
+    // EPUB 块也只在配置小节内算：README 里 status 输出的示例 JSON（config / file / lines / ledger）
+    // 形状和配置一模一样，全文扫就会把输出字段当配置键。
+    if (inCfg) {
+      const j = line.match(/^\s*"([a-z][a-zA-Z0-9_]*)"\s*:/);
+      if (j) keys.add(j[1]);
+    }
   }
   return keys;
 }
@@ -93,13 +106,19 @@ if (process.argv.includes("--selftest")) {
   const tmp = fs.mkdtempSync(path.join(process.env.TEMP || "/tmp", "docacc-"));
   const bad = path.join(tmp, "bad.md");
   const good = path.join(tmp, "good.md");
-  fs.writeFileSync(bad, "| " + TICK + "strict" + TICK + " | true | 已删的键 |\n有用：`config.ts`\n", "utf8");
-  fs.writeFileSync(good, "| " + TICK + "on" + TICK + " | true |\n| " + TICK + "threshold" + TICK + " | 3 |\n", "utf8");
+  fs.writeFileSync(bad, "## 配置\n\n| " + TICK + "strict" + TICK + " | true | 已删的键 |\n", "utf8");
+  fs.writeFileSync(good, "## 配置\n\n| " + TICK + "on" + TICK + " | true |\n| " + TICK + "min" + TICK + " | 3 |\n", "utf8");
+  // 新样本：不在「配置」小节里的表，首格是度量名，不该被当配置键报红。
+  // 这条正是 2026-11-24 那 9 处误报的形状（uniqRatio / topShare / judgeThinking）。
+  const metric = path.join(tmp, "metric.md");
+  fs.writeFileSync(metric, "## 实测对比\n\n| " + TICK + "uniqRatio" + TICK + " | 0.750 | 1.000 | 差 |\n", "utf8");
   const badProblems = check([bad], tmp);
   const goodProblems = check([good], tmp);
+  const metricProblems = check([metric], tmp);
   const checks = [
-    ["文档写了已删的键 strict → 必须红", badProblems.length > 0, true],
-    ["文档只写真实键 → 必须绿", goodProblems.length === 0, true],
+    ["配置小节里写了已删的键 strict → 必须红", badProblems.length > 0, true],
+    ["配置小节里只写真实键 → 必须绿", goodProblems.length === 0, true],
+    ["非配置小节的表首格是度量名 → 必须绿（这是那 9 处误报的形状）", metricProblems.length === 0, true],
   ];
   let n = 0;
   for (const c of checks) { const ok = c[1] === c[2]; if (!ok) n++; console.log((ok ? "PASS" : "FAIL") + "  " + c[0] + "（得 " + c[1] + "）"); }

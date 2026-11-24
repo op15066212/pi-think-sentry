@@ -26,11 +26,17 @@ export async function check(dir = here) {
 
   const featuresDir = path.join(src, "features");
   const features = fs.existsSync(featuresDir) ? fs.readdirSync(featuresDir).filter((f) => f.endsWith(".ts")) : [];
-  const named = new Set(RULES.map((r) => (r.module || "").replace(/^features\//, "")));
+  // 2026-11-24：module 允许是数组。一条判据常常由两件组成——配置单元（features/xxx.ts）
+  // 与实现（algo/xxx.ts 或 features/yyy.ts）。只允许一个字符串时，
+  // 实现那一侧就无法被点名，于是「文件存在但规则表里没有它的条目」永远抓不到。
+  const mods = (r) => (Array.isArray(r.module) ? r.module : r.module ? [r.module] : []);
+  const named = new Set(mods({ module: RULES.flatMap(mods) }).map((m) => m.replace(/^features\//, "")));
   for (const f of features) if (!named.has(f)) problems.push("features/" + f + " 没有任何 RULES 条目点名");
 
   for (const r of RULES) {
-    if (r.module && !fs.existsSync(path.join(src, r.module))) problems.push(r.id + " 点名的 " + r.module + " 不存在");
+    for (const m of mods(r)) {
+      if (!fs.existsSync(path.join(src, m))) problems.push(r.id + " 点名的 " + m + " 不存在");
+    }
   }
   return problems;
 }

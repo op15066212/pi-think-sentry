@@ -15,9 +15,12 @@ test("每个 module 字段指向的文件都存在", async () => {
   const { RULES } = await import("../src/meta.ts");
   const root = path.join(import.meta.dirname, "..", "src");
   const miss = [];
+  // module 可以是数组：一条判据常常由配置单元（features/）与实现（algo/）两件组成。
+  const mods = (m) => (Array.isArray(m) ? m : m ? [m] : []);
   for (const r of RULES) {
-    if (!r.module) continue;
-    if (!fs.existsSync(path.join(root, r.module))) miss.push(r.id + " → " + r.module);
+    for (const m of mods(r.module)) {
+      if (!fs.existsSync(path.join(root, m))) miss.push(r.id + " → " + m);
+    }
   }
   assert.equal(miss.length, 0, "module 指向不存在的文件：" + miss.join("、"));
 });

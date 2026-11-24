@@ -40,6 +40,10 @@ export const DEFAULTS = {
   // 第四种形状：行首前缀的机械重复（每行都以「务实：」开头）。
   // dup 按整行、inline 按句子、run 按连续重复，三条都看不见行首。
   prefix: { on: false, min: 0.5 },
+  // 归一化整体判断：四个量几何平均成一个分，门槛 0.60。
+  // 默认关闭——它和 shape 是同一个重叠面，两个都开会先判 shape。
+  // 打开前先用 bin/probe-unified.mjs 在真实台账上跑一遍，看分离度。
+  unified: { on: false, min: 0.6 },
   inject: { on: true, texts: { dup: "", lang: "", clean: "", inline: "" } },
   binding: { allowGateway: false },
 } as const;

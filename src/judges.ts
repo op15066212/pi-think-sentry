@@ -1,6 +1,7 @@
 import { longestRun } from "./features/run.ts";
 import { buildAC, excise } from "./algo/aho-corasick.ts";
 import { shapeOf } from "./algo/shape.ts";
+import { unifiedScore } from "./algo/unified.ts";
 import { collapseStats } from "./features/collapse.ts";
 import { SENT_RE, MARK_RE, sentencesOf } from "./sentences.ts";
 // 对外仍从 judges 导出：调用方不必知道我把它挪去了哪个文件。
@@ -87,6 +88,9 @@ export type JudgeCfg = {
   /** 结构特征判据（六维投票）。键名沿用 prefix，因为它最初只管行首。 */
   prefixOn: boolean;
   prefixMin: number;
+  /** 归一化整体判断：四个量几何平均成一个分，一个门槛。 */
+  unifiedOn: boolean;
+  unifiedMin: number;
   runMinLen: number;
   inlineMin: number;
   inlineRatio: number;
@@ -108,6 +112,8 @@ export const judgeCfg = (patch: any = {}): JudgeCfg => {
     runOn: patch.runOn === true,
     prefixOn: patch.prefixOn === true,
     prefixMin: typeof patch.prefixMin === "number" ? patch.prefixMin : 0.5,
+    unifiedOn: patch.unifiedOn === true,
+    unifiedMin: typeof patch.unifiedMin === "number" ? patch.unifiedMin : 0.6,
     runMinLen: typeof patch.runMinLen === "number" ? patch.runMinLen : 12,
     inlineMin: threshold(patch.inlineMin, INLINE_MIN, "judges.inlineMin"),
     inlineRatio: ratioOf(patch.inlineRatio, INLINE_RATIO),
@@ -420,6 +426,52 @@ function shapeOn(text: string, cfg: JudgeCfg) {
   });
 }
 
+/**
+ * 归一化整体判断。四个量各自在 [0,1]，几何平均成一个分，一个门槛。
+ *
+ * 为什么它和 shape 并存而不是取代：shape 的六维是**各自定门槛再投票**，
+ * unified 是**先归一化再合成**。同一段文本两者可能给出不同判决——
+ * 那正是要观察的区别，所以它们各有一条规则、各有开关，而不是合并。
+ *
+ * 证据形状复用 fold（按句计重复单元）：形状与 inline 相同，处置也相同。
+ */
+function unifiedOn(text: string, cfg: JudgeCfg) {
+  const u = unifiedScore(text, cfg.unifiedMin);
+  if (u.sentences < 4) {
+    return none("unified", { blk: null, reps: 0, why: u.why, dups: [], line: null });
+  }
+  if (!u.red) {
+    return none("unified", { blk: null, reps: 0, why: u.why, dups: [], line: null });
+  }
+  // 报出拉低总分最多的那一维，让人知道是哪一类重复。
+  const dims: Array<[string, number]> = [
+    ["群论周期", 1 - u.symmetry],
+    ["转移熵", u.entropy],
+    ["最高频句", 1 - u.maxShare],
+    ["ngram 重复", 1 - u.ngramRep],
+  ];
+  dims.sort((a, b) => a[1] - b[1]);
+  const worst = dims[0];
+  return Verdict.parse({
+    kind: "fold",
+    rule: "unified",
+    ev: {
+      blk: worst[0],
+      reps: u.sentences,
+      why: u.why,
+      dups: [[worst[0], u.sentences, [0]] as [string, number, number[]]],
+      line: 1,
+      lineTo: 1,
+      scope: "collapse" as const,
+      from: 0,
+      len: u.sentences,
+      unique: u.nodes,
+      ratio: 1 - u.score,
+      truncated: false,
+    },
+  });
+}
+
 export function judgeThinking(text: any, patch: Partial<JudgeCfg> = {}) {
   // 入口补全，不是只在没传时用默认值。
   // 之前签名是 cfg: JudgeCfg = judgeCfg()：传了部分配置就用部分的，
@@ -456,6 +508,10 @@ export function judgeThinking(text: any, patch: Partial<JudgeCfg> = {}) {
   if (cfg.prefixOn) {
     const sh = shapeOn(body, cfg);
     if (sh.kind !== "none") return sh;
+  }
+  if (cfg.unifiedOn) {
+    const u = unifiedOn(body, cfg);
+    if (u.kind !== "none") return u;
   }
   if (cfg.runOn) {
     const r = longestRun(body, cfg.runMinLen);
