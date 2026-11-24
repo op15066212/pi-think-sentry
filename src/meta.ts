@@ -63,6 +63,16 @@ id: "run", kind: "verdict", module: "features/run.ts",
     消去: "bin/longest-run-probe.mjs 的内置样本与 test/lz77.test.ts 算同一件事",
     反例: "31 行「做。」：最长匹配 89 >= 12，判红",
   },
+  // 2026-11-24：结构特征六维投票。前三条判据都看不见「形状」——
+  // 截图那段每行以「务实：」开头，dup/inline/run 三条一条都不判。
+  {
+id: "shape", kind: "verdict", module: "algo/shape.ts",
+    prop: "行首/行尾/行长/缩进/句首/套话 六个维度里越线 >= 2 个时判红",
+    形成: "prefix.on / prefix.min 在 src/defaults.ts（默认 false / 0.5）。键名沿用 prefix，因为它最初只管行首",
+    引入: "node --experimental-strip-types --test test/shape.test.ts；期望 8 条全过、rc=0",
+    消去: "bin/probe-shape.mjs 的三个退化样本与两个正常样本各得几票，与 test/shape.test.ts 算同一件事",
+    反例: "截图那段 18 行全部以「务实：」开头：行首 100% + 句首 95% = 2 票，判红",
+  },
   {
 id: "inject-thinking-only", kind: "mechanism", module: "features/inject.ts",
     prop: "只对 type=thinking 的块动手，别的块原样返回",

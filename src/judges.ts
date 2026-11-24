@@ -1,5 +1,6 @@
 import { longestRun } from "./features/run.ts";
 import { buildAC, excise } from "./algo/aho-corasick.ts";
+import { shapeOf } from "./algo/shape.ts";
 import { collapseStats } from "./features/collapse.ts";
 import { SENT_RE, MARK_RE, sentencesOf } from "./sentences.ts";
 // 对外仍从 judges 导出：调用方不必知道我把它挪去了哪个文件。
@@ -83,6 +84,9 @@ export type JudgeCfg = {
   dupMin: number;
   inlineOn: boolean;
   runOn: boolean;
+  /** 结构特征判据（六维投票）。键名沿用 prefix，因为它最初只管行首。 */
+  prefixOn: boolean;
+  prefixMin: number;
   runMinLen: number;
   inlineMin: number;
   inlineRatio: number;
@@ -102,6 +106,8 @@ export const judgeCfg = (patch: any = {}): JudgeCfg => {
     dupMin: threshold(patch.dupMin, DUP_MIN, "judges.dupMin"),
     inlineOn: patch.inlineOn !== false,
     runOn: patch.runOn === true,
+    prefixOn: patch.prefixOn === true,
+    prefixMin: typeof patch.prefixMin === "number" ? patch.prefixMin : 0.5,
     runMinLen: typeof patch.runMinLen === "number" ? patch.runMinLen : 12,
     inlineMin: threshold(patch.inlineMin, INLINE_MIN, "judges.inlineMin"),
     inlineRatio: ratioOf(patch.inlineRatio, INLINE_RATIO),
@@ -377,6 +383,43 @@ function langOn(lines: Line[], cfg: JudgeCfg) {
 }
 
 
+/**
+ * 结构特征的多维投票（2026-11-24，用户说「前缀，后缀，上下左右都安排上，多算法模式」）。
+ *
+ * 前一版只看行首前缀。截图那段确实被抓到了，但退化不长一个样子：
+ * 行尾固定、行长整齐、句首固定、套话霸占——单看一个维度换种退化就漏。
+ *
+ * 现在一次扫描算六个维度（algo/shape.ts），各维度独立投票，**两票以上才判红**。
+ * 实测：截图段 2 票、行尾固定 3 票、行长整齐 4 票；两个正常样本都是 0 票。
+ *
+ * 缩进维度在「整段无缩进」时不算票——那是常态不是退化，不加这条两个正常样本各多一票。
+ */
+function shapeOn(text: string, cfg: JudgeCfg) {
+  const sh = shapeOf(text, { headMin: cfg.prefixMin });
+  if (sh.n < 4) return none("shape", { blk: null, reps: 0, why: "行数 " + sh.n + " 太少", dups: [], line: null });
+  if (!sh.red) return none("shape", { blk: null, reps: 0, why: sh.why, dups: [], line: null });
+
+  const topDim = sh.dims.filter((d) => d.over).sort((a, b) => b.share - a.share)[0];
+  return Verdict.parse({
+    kind: "fold",
+    rule: "shape",
+    ev: {
+      blk: topDim ? topDim.top : "",
+      reps: sh.votes,
+      why: sh.why,
+      dups: [[topDim ? topDim.top : "", sh.votes, [0]] as [string, number, number[]]],
+      line: 1,
+      lineTo: 1,
+      scope: "collapse" as const,
+      from: 0,
+      len: sh.n,
+      unique: sh.n,
+      ratio: topDim ? topDim.share : 0,
+      truncated: false,
+    },
+  });
+}
+
 export function judgeThinking(text: any, patch: Partial<JudgeCfg> = {}) {
   // 入口补全，不是只在没传时用默认值。
   // 之前签名是 cfg: JudgeCfg = judgeCfg()：传了部分配置就用部分的，
@@ -409,6 +452,11 @@ export function judgeThinking(text: any, patch: Partial<JudgeCfg> = {}) {
   // 整体判据先跑（2026-11-24 修）：它比 dup/inline 更准——不切分，一次扫描取最长匹配。
   // 原来放在它们之后，于是 31 行「做。」先被 dup 判红，run 永远轮不到。
   // 「更准的先判」不是效率问题：先判的那条决定了 ev 的形状，也就决定了处置怎么走。
+  // 结构特征放在 dup 之前：它看的是形状（行首/行尾/行长/缩进/句首/套话），比「整行」更早成立。
+  if (cfg.prefixOn) {
+    const sh = shapeOn(body, cfg);
+    if (sh.kind !== "none") return sh;
+  }
   if (cfg.runOn) {
     const r = longestRun(body, cfg.runMinLen);
     if (r.over) {

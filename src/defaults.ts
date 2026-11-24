@@ -37,6 +37,9 @@ export const DEFAULTS = {
   // 与 dup/inline 并行跑一段时间，用真实数据决定谁留下。
   // 整体判据：LZ77 最长匹配。默认关闭，与 dup/inline 并行跑一段时间再决定。
   run: { on: false, minLen: 12 },
+  // 第四种形状：行首前缀的机械重复（每行都以「务实：」开头）。
+  // dup 按整行、inline 按句子、run 按连续重复，三条都看不见行首。
+  prefix: { on: false, min: 0.5 },
   inject: { on: true, texts: { dup: "", lang: "", clean: "", inline: "" } },
   binding: { allowGateway: false },
 } as const;

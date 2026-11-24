@@ -27,5 +27,13 @@
     "on": true,
     "min": 12,
     "ratio": 0.25
+  },
+  "run": {
+    "on": false,
+    "minLen": 12
+  },
+  "prefix": {
+    "on": false,
+    "min": 0.5
   }
 }
