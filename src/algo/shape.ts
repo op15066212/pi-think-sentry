@@ -57,6 +57,67 @@ export function stripMdPrefix(line: string): string {
   return s;
 }
 
+/**
+ * 剥掉行尾的 markdown 语法符号。
+ *
+ * 2026-11-24 跨会话量出来的形状（13093 段，6 个会话）：
+ *   行尾「。**」65%   <- markdown 加粗结尾，不是文字重复
+ *   行尾「...」70%    <- 省略号
+ * 这两个在「行尾」维度上被判成「同一串字收尾」，而它们只是排版。
+ *
+ * 剥的仍是语法，不是内容：只吃行尾的 * _ ~ 与紧挨着的重复标点。
+ */
+export function stripMdSuffix(line: string): string {
+  let s = String(line || "").trim();
+  let prev = "";
+  while (prev !== s) {
+    prev = s;
+    s = s
+      .replace(/[*_`~]+$/, "")
+      .replace(/[.．。]{2,}$/, "")
+      .trim();
+  }
+  return s;
+}
+
+/**
+ * 是不是代码行。
+ *
+ * 跨会话数据里，行首维度被这两种骗过：
+ *   「imp」50%（import）   「dat」53%（data）
+ * 它们确实是「同一串字开头」，但那是代码关键字，不是退化。
+ *
+ * 判法：以 ASCII 字母开头，且这行里没有中文。
+ * 反过来不成立——中文开头也可能是代码注释，但那种不常见，且宁可漏不可乱判。
+ */
+export function isCodeLine(s: string): boolean {
+  const t = String(s || "").trim();
+  if (!t) return false;
+  if (!/^[A-Za-z_$]/.test(t)) return false;
+  return !/[一-鿿]/.test(t);
+}
+
+/**
+ * 这一行参不参与「行首/行尾/句首」三个文字维度的统计。
+ *
+ * 跨会话第二轮量出来的残留（13097 段，shape 从 2.1% 收到 0.8% 之后）：
+ *   行首「100」93%   <- 数字开头（表格、编号）
+ *   句首「1.」44%    <- 有序列表
+ *   行首「~/.」57%   <- 路径
+ * 这三种都不是「文字重复」，是排版与路径。
+ *
+ * 判法：只认中文开头的行。
+ *
+ * 代价写在这里，不假装没有：**全英文的思考在行首维度上永远 0 票**。
+ * 本插件的 lang.dir 默认 zh，英文场景主要由 lang 判据管；
+ * 真要覆盖英文退化，得给英文行单独一组统计，现在没做。
+ */
+export function isProseLine(s: string): boolean {
+  const t = String(s || "").trim();
+  if (!t) return false;
+  return /^[一-鿿]/.test(t);
+}
+
 export const DIM_LEN = 3;
 
 export type Dim = {
@@ -157,7 +218,8 @@ export function shapeOf(text: any, cfg: ShapeCfg = {}): Shape {
       const t = l.trim();
       // c = 剥掉 markdown 语法符号后的内容，文字维度都用它；
       // t 与 raw 留给行长与缩进——那两个维度问的是排版，不是文字。
-      return { raw: l, t, c: stripMdPrefix(t) };
+      const c = stripMdPrefix(t);
+      return { raw: l, t, c, e: stripMdSuffix(c) };
     })
     .filter((x) => x.c.length >= DIM_LEN && !/^(`{3,}|~{3,})/.test(x.t));
 
@@ -167,15 +229,18 @@ export function shapeOf(text: any, cfg: ShapeCfg = {}): Shape {
   if (n < 8) return empty;
 
   // 一 行首：前 3 字
-  const head = topShareOf(rows.map((x) => x.c.slice(0, DIM_LEN)));
+  // 行首：只看「有中文的行」。代码关键字（import / data）也是同一串字开头，
+  // 但那是语言结构，不是退化。跨会话实测这两种把行首维度骗到 50% 以上。
+  const prose = rows.filter((x) => isProseLine(x.c));
+  const head = topShareOf(prose.map((x) => x.c.slice(0, DIM_LEN)));
   // 二 行尾：后 3 字
-  const tail = topShareOf(rows.map((x) => x.c.slice(-DIM_LEN)));
+  const tail = topShareOf(prose.map((x) => x.e.slice(-DIM_LEN)));
   // 三 行长：分档后的集中度
   const lenb = topShareOf(rows.map((x) => lenBucket(x.t)));
   // 四 缩进：分档后的集中度
   const ind = topShareOf(rows.map((x) => indentBucket(x.raw)));
   // 五 句首：每句前 2 字（句子比行更细）
-  const sents = rows.flatMap((x) => x.c.split(/[。！？!?]/).map((s) => s.trim()).filter((s) => s.length >= 2));
+  const sents = prose.flatMap((x) => x.c.split(/[。！？!?]/).map((s) => s.trim()).filter((s) => s.length >= 2));
   const sentHead = topShareOf(sents.map((s) => s.slice(0, Math.min(2, s.length))));
   // 六 套话：连续 4 字窗口的集中度（高频短语霸占全篇）
   const grams: string[] = [];
