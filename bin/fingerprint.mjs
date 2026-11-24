@@ -32,7 +32,7 @@ const EXTS = new Set([".ts", ".mts", ".mjs", ".js", ".json"]);
 // 2026-11-24（pi 插件2 抓的）：这个常量原来定义了却从未被引用，
 // 而注释写着「不进总指纹」、代码又把 settings.json 放进了 files。
 // 注释说 A，代码做 B——正是这一路在修的形状。现在它真的被用了。
-const VOLATILE = new Set(["settings.json", "package-lock.json"]);
+const VOLATILE = new Set(["settings.json", "SIGN-OFF.md", "package-lock.json"]);
 
 function walk(dir, out = []) {
   if (!fs.existsSync(dir)) return out;
@@ -53,7 +53,7 @@ for (const d of DIRS) files.push(...walk(path.join(ROOT, d)));
 // 顶层配置文件也是行为的一部分
 // README 与 settings.json 也是行为的一部分：口径上限写在 README 里，开关写在 settings 里。
 // 不纳入指纹的话，双方认可的那份文档就没有身份，改一个字谁也看不出来。
-for (const f of ["package.json", "tsconfig.json", "README.md", "settings.json"]) {
+for (const f of ["package.json", "tsconfig.json", "README.md", "settings.json", "SIGN-OFF.md"]) {
   const p = path.join(ROOT, f);
   if (fs.existsSync(p)) files.push(p);
 }
