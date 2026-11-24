@@ -43,7 +43,9 @@ function walk(dir, out = []) {
 const files = [];
 for (const d of DIRS) files.push(...walk(path.join(ROOT, d)));
 // 顶层配置文件也是行为的一部分
-for (const f of ["package.json", "tsconfig.json"]) {
+// README 与 settings.json 也是行为的一部分：口径上限写在 README 里，开关写在 settings 里。
+// 不纳入指纹的话，双方认可的那份文档就没有身份，改一个字谁也看不出来。
+for (const f of ["package.json", "tsconfig.json", "README.md", "settings.json"]) {
   const p = path.join(ROOT, f);
   if (fs.existsSync(p)) files.push(p);
 }
