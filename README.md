@@ -66,8 +66,9 @@ node --experimental-strip-types bin/diagnose-inline.mjs ~/.pi/agent/sessions   #
 node --experimental-strip-types bin/probe-inline.mjs ~/.pi/agent/sessions      # 三个量哪个能分
 ```
 
-**`collapseRange` 保留但已不在主路径上**：它有自己的测试，且「连续区间」是另一种形状。
-当前判据走 `features/collapse.ts` 的 `collapseStats`。
+**inline 整条已删（2026-11-24）**：`collapseRange` / `collapseStats` / features/inline（已删）
+一并移除，理由见「口径上限」表里 inline 那一行（11-21 上 0 段）。下面讲形状的段落
+保留作历史：它说明过「连续区间」与「整段比例」是两种不同的量。
 
 ### 历史回放：真实数据比造样本可信
 
@@ -123,7 +124,6 @@ REPLAY_FILES=8 node --experimental-strip-types bin/replay-history.mjs <会话目
 ```text
 dup                  → test/dup.test.ts            16 条
 lang                 → test/guard.test.ts          12 条
-inline               → test/collapse.test.ts       11 条
 inject-thinking-only → test/inject.test.ts          5 条
 intercept-en-only    → test/deadlock.test.ts        8 条
 strip-empty          → test/empty-frame.test.ts     2 条
@@ -227,7 +227,6 @@ binding-anthropic    → test/r7.test.ts              6 条
 
 ```bash
 npm test                                    # 全部；条数以运行时为准，不写进文档
-node --experimental-strip-types --test test/collapse.test.ts
 node --experimental-strip-types --test test/round-clean.test.ts
 npm run e2e                                 # 真实退化样本端到端（判据→拦截→折叠）
 ```
@@ -298,10 +297,19 @@ $ node --experimental-strip-types bin/probe-lang-audit.mts <六份 jsonl>
 | --- | --- | --- |
 | dup | 2,056 | **准。** 抽 10 条实际重复串：`做。` x4、`写。` x4、`所以：` x4 |
 | lang | 325 = 1.8% | **准。** 93.2% 的判红是纯英文段，误报集中在「中文夹英文专名」约 6.8% |
-| inline | 1,716 | **召回 0。** 11-21（有真退化）上 0 段，命中集中在 11-18/11-19 |
-| shape | 516 | 关。独有 314 段与「关键：」写作习惯不可分 |
-| run | — | 默认关。6 会话误报 61% |
-| unified | — | 默认关。0 命中，熵维恒 1.00 |
+| inline | **已删** | 实现体已移除（2026-11-24）。结论：11-21（有真退化）上 0 段，命中集中在 11-18/11-19 |
+| shape | **已删** | 实现体已移除（2026-11-24）。结论：独有 314 段与「关键：」写作习惯不可分 |
+| run | **已删** | 实现体已移除（2026-11-24）。结论：@40 判红率 6.2% / @12 判红率 64.3%（12,683 段），抽样全为代码路径重复 |
+| unified | **已删** | 实现体已移除（2026-11-24）。结论：0 命中，熵维恒 1.00 |
+
+「已删」的四条在 `src/meta.ts` 的 `REMOVED_RULES` 里各留一条记录（名字、删除时刻、为什么删、它当时量什么）。
+抹掉之后只剩「以前好像有过一条」，下次会有人重新发明它。
+
+run 的两个数必须一起读：**判红率**（分母是全部段）@40 是 6.2%、@12 是 64.3%；
+**误报率**（分母是判红段）两个门槛下抽样都是 100%（@40 抽 14 条、@12 抽 12 条，
+全是复算 md5、核对 git status 这类正常技术思考）。
+先前这里写过「6 会话误报 61%」——那个 61% 实际是 @12 的判红率（实为 64.3%），
+写成了「误报」，是两个量混成一个词。分会话明细见 `bin/report-run-by-session.mts`。
 
 ### 这一节自己翻过三次车，记在这里
 

@@ -78,3 +78,25 @@ test("每条规则的引入是单文件精确命令，不是批次命令", async
     assert.ok(!/npm test/.test(s), (r.id || "(无 id)") + " 用了批次命令 npm test：" + s);
   }
 });
+
+test("REMOVED_RULES 每条都有名字、删除时刻、为什么——缺一个就没有引用价值", async () => {
+  const { REMOVED_RULES, RULES } = await import("../src/meta.ts");
+  assert.ok(Array.isArray(REMOVED_RULES) && REMOVED_RULES.length > 0, "REMOVED_RULES 不能是空的：删过的东西要留证据");
+  const activeIds = new Set(RULES.map((r) => r.id));
+  for (const r of REMOVED_RULES) {
+    assert.ok(typeof r.id === "string" && r.id.length > 0, "id 不能空");
+    assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(r.removedAt || ""), "removedAt 必须是 YYYY-MM-DD，实际 " + r.removedAt);
+    assert.ok(typeof r.why === "string" && r.why.length >= 10, "why 至少要说出量出了什么，实际 " + JSON.stringify(r.why));
+    // 已删的不能还在 RULES 里：两边同时存在说明有人把它加回去了却没标 status
+    assert.ok(!activeIds.has(r.id), r.id + " 同时在 RULES 与 REMOVED_RULES 里，二选一");
+  }
+});
+
+test("REMOVED_RULES 的 id 不重复", async () => {
+  const { REMOVED_RULES } = await import("../src/meta.ts");
+  const seen = new Set();
+  for (const r of REMOVED_RULES) {
+    assert.ok(!seen.has(r.id), "重复的已删规则 id：" + r.id);
+    seen.add(r.id);
+  }
+});

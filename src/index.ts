@@ -130,9 +130,6 @@ const applyCfg = (c: any) => {
   // 「配好了 ≠ 生效了」这一条在插件内部同样成立。
   jcfg = judgeCfg({
     dupOn: c.dup.on, dupMin: c.dup.min,
-    inlineOn: c.inline.on, inlineMin: c.inline.min, inlineRatio: c.inline.ratio,
-    runOn: c.run.on, runMinLen: c.run.minLen,
-    prefixOn: c.prefix.on, prefixMin: c.prefix.min,
     langOn: c.lang.on, langDir: c.lang.dir, boundaryMinExempt: c.intercept.boundaryMinExempt,
     // 三份模板都要剥：judgeCfg 按换行切，所以 join 成一行（传数组会被 String() 变成逗号拼接）。
       skip: c.inject.on ? [c.inject.texts.dup, c.inject.texts.lang, c.inject.texts.clean].filter(Boolean).join(String.fromCharCode(10)) : "",
@@ -238,8 +235,8 @@ export const statusLines = () => {
   const lines = [
     "capture " + (b.startsWith("on") ? "on" : "off") + "   code " + (stale ? "旧代码(重启)" : "最新"),
     "回合 " + stats.turns + "  红 " + stats.red + "  拦 " + stats.blocked + "  处置 " + stats.cleaned,
-    "dup " + c.dup.min + "   inline " + c.inline.min + "句/" + Math.round(c.inline.ratio * 100) + "%",
-    "strip " + c.strip.min + "   lang " + c.lang.dir + "   拦截 " + (c.intercept.on ? "开" : "关"),
+    "dup " + c.dup.min + "   lang " + c.lang.dir + "   strip " + c.strip.min,
+    "拦截 " + (c.intercept.on ? "开" : "关") + "   清理签名 " + (c.signature.on ? "开/" + c.signature.keepTurns + "轮" : "关"),
   ];
   const problem = readProblem();
   if (problem) lines.push("问题 " + String(JSON.stringify(problem)).slice(0, 34));

@@ -53,6 +53,41 @@ export const SCOPE_LIMIT = {
   why: "字符级手段抓不到语义同一性。不是门槛问题，是信号选错。",
 } as const;
 
+/**
+ * 已删除的判据（2026-11-24）。
+ *
+ * 为什么不直接从事上抹掉：一个判据被删，理由本身是这一路的证据——
+ * 它当时量什么、量出了多少、为什么那个量对技术文本没意义。
+ * 抹掉之后只剩「以前好像有过一条」，下次会有人重新发明它。
+ *
+ * 与 RULES 的区别：RULES 是**声明即承诺**——每一条都必须有判据产出，
+ * 「声明了但没有判据产出」那条测试扫的就是它。这个常量没有这个承诺，
+ * 因为它描述的是**曾经存在过**的东西，不是现在跑的东西。
+ *
+ * 三类信息都必填：名字、删除时刻、为什么删。缺一个就没有引用价值。
+ * 判据：node --experimental-strip-types --test test/meta.test.ts（两条 REMOVED_RULES 用例）
+ */
+export const REMOVED_RULES = [
+  {
+    id: "inline",
+    removedAt: "2026-11-24",
+    why: "11-21（有真退化）上 0 段，命中集中在 11-18/11-19；句子坍缩在真实数据上没出现过",
+    was: "按句切分，数句子种类占比，低于 pristineRatio 判红；处置是把重复句折成一句",
+  },
+  {
+    id: "run",
+    removedAt: "2026-11-24",
+    why: "minLen=40 判红率 6.2%（12683 段），抽 14 条全为代码路径重复；minLen=12 判红率 64.3%，抽 12 条同样全误报",
+    was: "LZ77 一次扫全文，取最长自我匹配，超过 minLen 判红；不切分，与文本总长无关",
+  },
+  {
+    id: "shape",
+    removedAt: "2026-11-24",
+    why: "独有 314 段与「关键：」写作习惯不可分——量的是写作风格，不是退化",
+    was: "六维投票（行首/行尾/行长/缩进/句首/套话），两票以上判红",
+  },
+];
+
 export const RULES: readonly Rule[] = [
   {
 id: "dup", kind: "verdict", module: "features/dup.ts",
@@ -69,45 +104,6 @@ id: "lang", kind: "verdict", module: "features/lang.ts",
     引入: "node --experimental-strip-types --test test/guard.test.ts；期望 12 条全过、rc=0",
     消去: "同一块换 dir=zh 与 dir=en，方向应对调",
     反例: "整块英文思考、中文只有一行",
-  },
-  // 2026-11-24 审查补：judges.ts 产出三个 rule（dup / inline / lang），
-  // meta 原来只声明了两个——inline 这条判据存在、有测试、在跑，却没进规则表。
-  // 「规则集闭合」不是修辞：产出里有的，声明里必须也有，否则四件永远缺一件。
-  {
-id: "inline", kind: "verdict", module: ["features/inline.ts", "features/collapse.ts"],
-    prop: "一段内不同句占比 < inline.ratio 且句数 ≥ inline.min 时判红",
-    形成: "inline.min / inline.ratio 在 src/defaults.ts（默认 12 / 0.25）",
-    引入: "node --experimental-strip-types --test test/collapse.test.ts；期望 11 条全过、rc=0",
-    消去: "test/ 里句级用例与真实退化回放算同一件事",
-    反例: "一段 40 句只有 3 种：占比 7.5% < 25%，判红",
-  },
-  // 2026-11-24：整体判据。前两条都先切分（按行、按句），这一条不切分。
-  {
-id: "run", kind: "verdict", module: "features/run.ts",
-    prop: "整段里最长的一条重复 >= run.minLen 时判红（默认 12 字）",
-    形成: "run.on / run.minLen 在 src/defaults.ts（默认 false / 12）",
-    引入: "node --experimental-strip-types --test test/lz77.test.ts；期望 7 条全过、rc=0",
-    消去: "bin/longest-run-probe.mjs 的内置样本与 test/lz77.test.ts 算同一件事",
-    反例: "31 行「做。」：最长匹配 89 >= 12，判红",
-  },
-  // 2026-11-24：结构特征六维投票。前三条判据都看不见「形状」——
-  // 截图那段每行以「务实：」开头，dup/inline/run 三条一条都不判。
-  {
-id: "shape", kind: "verdict", module: ["features/prefix.ts", "algo/shape.ts"],
-    prop: "行首/行尾/行长/缩进/句首/套话 六个维度里越线 >= 2 个时判红",
-    // 2026-11-24：「prefix」不是一个独立判据，它就是这里的行首维度。
-    // 配置键名沿用 prefix 是历史原因（这条最初只管行首），规则名统一叫 shape——
-    // 一个判据一个名字，否则同一条判据会有两个入口、两份阈值。
-    //
-    // 同一天实测结论：**这条判据量错了对象，默认关闭。**
-    // 6 个会话 17,638 段上它独有捕获 314 段，按行首前缀分组后「务实：」与「关键：」
-    // 在五个量上全部重叠——不是门槛没调好，是「行首词集中」这个信号与「是否退化」
-    // 之间没有因果关系。它真正抓得到的整行重复由 dup 管（probe-shape-delta --selftest A 样本）。
-    // 保留代码是为了让下一个会话看到结论，而不是重新发明它。
-    形成: "prefix.on / prefix.min 在 src/defaults.ts（默认 false / 0.5）。键名沿用 prefix，因为它最初只管行首",
-    引入: "node --experimental-strip-types --test test/shape.test.ts；期望 8 条全过、rc=0",
-    消去: "bin/probe-shape.mjs 的三个退化样本与两个正常样本各得几票，与 test/shape.test.ts 算同一件事",
-    反例: "截图那段 18 行全部以「务实：」开头：行首 100% + 句首 95% = 2 票，判红",
   },
   // 2026-11-24：thinkingSignature 清理。用户要的：
   //   「每一个大轮完成，thinkingSignature 清理签名。这个也配置文件化。

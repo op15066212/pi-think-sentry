@@ -1,7 +1,4 @@
-import { longestRun } from "./features/run.ts";
 import { buildAC, excise } from "./algo/aho-corasick.ts";
-import { shapeOf } from "./algo/shape.ts";
-import { collapseStats } from "./features/collapse.ts";
 import { SENT_RE, MARK_RE, sentencesOf } from "./sentences.ts";
 // 对外仍从 judges 导出：调用方不必知道我把它挪去了哪个文件。
 export { MARK_RE, sentencesOf };
@@ -13,9 +10,6 @@ const ratioOf = (v: any, dflt: number) => {
 };
 
 
-export const INLINE_RATIO: number = DEFAULTS.inline.ratio;
-export const COLLAPSE_RATIO = INLINE_RATIO;
-export const COLLAPSE_MIN_LEN = 12;
 
 
 import { Verdict } from "./verdict.ts";
@@ -35,7 +29,6 @@ import { DEFAULTS } from "./defaults.ts";
 // 全部删掉。剩下的就是下面这些。
 
 export const DUP_MIN: number = DEFAULTS.dup.min;
-export const INLINE_MIN: number = DEFAULTS.inline.min;
 
 // ===== 位置：把文本切成行，每行一个标签 =====
 //
@@ -86,11 +79,7 @@ export type JudgeCfg = {
   runOn: boolean;
   /** 结构特征判据（六维投票）。键名沿用 prefix，因为它最初只管行首。 */
   prefixOn: boolean;
-  prefixMin: number;
   /** 归一化整体判断：四个量几何平均成一个分，一个门槛。 */
-  runMinLen: number;
-  inlineMin: number;
-  inlineRatio: number;
   langOn: boolean;
   langDir: "zh" | "en";
   /** 注入文案的行序列（trim 后、去空行）。顺序有意义：只剥末尾那一段。 */
@@ -108,10 +97,6 @@ export const judgeCfg = (patch: any = {}): JudgeCfg => {
     inlineOn: patch.inlineOn !== false,
     runOn: patch.runOn === true,
     prefixOn: patch.prefixOn === true,
-    prefixMin: typeof patch.prefixMin === "number" ? patch.prefixMin : 0.5,
-    runMinLen: typeof patch.runMinLen === "number" ? patch.runMinLen : 12,
-    inlineMin: threshold(patch.inlineMin, INLINE_MIN, "judges.inlineMin"),
-    inlineRatio: ratioOf(patch.inlineRatio, INLINE_RATIO),
     langOn: patch.langOn !== false,
     langDir: patch.langDir === "en" ? "en" : "zh",
     skip,
@@ -224,124 +209,7 @@ function dupOn(lines: Line[], cfg: JudgeCfg) {
 // 门槛：RATIO=1/4、MIN_LEN=12。MIN_LEN 取 12 是因为：12 句里最多允许 3 种不同句，
 // 正常写作几乎不可能；而退化段实测 200~480 句、uniq 个位数，远远超过门槛。
 
-/** 最长坍缩区间：整段里任意连续区间，只要 uniq/len ≤ ratio 且 len ≥ minLen，取最长。
- *
- * 为什么不是「后缀」（第二次被绕过的地方）：
- * 实测有一段 192 句、125 个 ok，但**尾部恢复了正常**（结尾是「先看 pideck 技能文档」）。
- * 只扫尾部就判 none，而中段 60 句里只有 8 种。退化的位置不固定，判据就不能假定它在尾部。
- *
- * 复杂度 O(n²)：n 是句数，实测最大 539 句 → 14 万次 Set 操作，不到 5ms。
- * 有界（Ax4）：超过 MAX_SENT 句就只扫前 MAX_SENT 句并报「截断」。
- */
-export const COLLAPSE_MAX_SENT = 2000;
 
-export function collapseRange(text: any, ratio = COLLAPSE_RATIO, minLen = COLLAPSE_MIN_LEN, skip: string[] = []) {
-  let sents = sentencesOf(text, skip);
-  let truncated = false;
-  if (sents.length > COLLAPSE_MAX_SENT) {
-    sents = sents.slice(0, COLLAPSE_MAX_SENT);
-    truncated = true;
-  }
-  const n = sents.length;
-  if (n < minLen) return null;
-
-  let best: { from: number; len: number; unique: number } | null = null;
-  for (let i = 0; i < n; i++) {
-    const seen = new Set<string>();
-    // 剪枝：剩下的长度不可能超过当前最优
-    if (best && n - i <= best.len) break;
-    for (let j = i; j < n; j++) {
-      seen.add(sents[j].t);
-      const len = j - i + 1;
-      if ((best === null || len > best.len) && len >= minLen && seen.size / len <= ratio) {
-        best = { from: i, len, unique: seen.size };
-      }
-      // 剪枝：uniq 增长快于 ratio*len 时，继续延长只会更差
-      if (seen.size / len > ratio && seen.size > ratio * (n - i) + 1) break;
-    }
-  }
-  if (!best || best.len < minLen) return null;
-
-  // 收缩两端（2026-11-23 第四次）：单纯「最长区间」会把紧挨着的正常句子吞进来——
-  // 只要加进来之后 uniq/len 仍 ≤ ratio，它就继续扩。实测会把「开头第一行，正常。」也折掉。
-  // 修法：区间首/尾若在区间内只出现一次（= 它不属于这套重复），就把它还给原文。
-  const counts = new Map<string, number>();
-  for (let i = best.from; i < best.from + best.len; i++) {
-    counts.set(sents[i].t, (counts.get(sents[i].t) || 0) + 1);
-  }
-  while (best.len > minLen) {
-    const head = sents[best.from].t;
-    if ((counts.get(head) || 0) > 1) break;
-    counts.set(head, (counts.get(head) || 0) - 1);
-    best.from++;
-    best.len--;
-  }
-  while (best.len > minLen) {
-    const tail = sents[best.from + best.len - 1].t;
-    if ((counts.get(tail) || 0) > 1) break;
-    counts.set(tail, (counts.get(tail) || 0) - 1);
-    best.len--;
-  }
-  best.unique = new Set(sents.slice(best.from, best.from + best.len).map((x) => x.t)).size;
-  if (best.unique / best.len > ratio) return null;
-
-  const first = sents[best.from];
-  const last = sents[best.from + best.len - 1];
-  return {
-    from: best.from,
-    len: best.len,
-    unique: best.unique,
-    ratio: best.unique / best.len,
-    line: first.li + 1,
-    lineTo: last.li + 1,     // 区间最后一句所在行（折叠按行做，需要两端）
-    sample: first.t,
-    truncated,
-    sents,
-  };
-}
-
-/**
- * 句级坍缩（2026-11-24 重写）。
- *
- * 旧实现用 collapseRange：O(n²) 找「最长的一段连续句子，其中不同句占比 <= ratio」。
- * 真实数据上它只覆盖 0.3%（50641 段里 129 段）；拿 dup 命中当金标准（3384 段），
- * 它漏掉 3143 段——因为真实重复是**散落**的，连续区间凑不够长度。
- *
- * 新实现走 features/collapse.ts 的 collapseStats：一次扫描算两个全局量，
- *   topShare     最高频那一句占全部句子的比例（金标准 p50 0.222 vs 未标记 0.079）
- *   repeatCover  出现 >= 2 次的句子覆盖的句子数 / 总句数
- * 判据：topShare >= 0.3 或 repeatCover >= 0.5。实测金标准命中 33.9%、未标记 7.0%。
- *
- * 复杂度从 O(n²) 降到 O(n)。ev 形状不变，所以 strip 的 foldInline 不用改。
- */
-function collapseOn(text: any, cfg: JudgeCfg) {
-  const minLen = Math.max(COLLAPSE_MIN_LEN, cfg.inlineMin);
-  const c = collapseStats(text, cfg.skip || []);
-  // 句数太少时两个比例都没有统计意义：4 句全同是 100%，但正常写作里那样并不构成退化。
-  if (c.n < minLen) return none("inline", { blk: null, reps: 0, why: "句数 " + c.n + " 不足 " + minLen, dups: [], line: null });
-  if (!c.collapsed) return none("inline", { blk: null, reps: 0, why: c.why, dups: [], line: null });
-
-  const reps = c.n > 0 && c.uniq > 0 ? Math.round(c.n / c.uniq) : 0;
-  return Verdict.parse({
-    kind: "fold",
-    rule: "inline",
-    ev: {
-      blk: c.topSentence,
-      reps,
-      why: c.why,
-      // 与 dup 同形，供 strip 定位：这里是「最高频那一句 + 它的行号」
-      dups: [[c.topSentence, reps, [c.topLine]] as [string, number, number[]]],
-      line: c.topLine + 1,
-      lineTo: c.topLine + 1,
-      scope: "collapse" as const,
-      from: 0,
-      len: c.n,
-      unique: c.uniq,
-      ratio: c.topShare,
-      truncated: false,
-    },
-  });
-}
 
 const countCjk = (s: any) => (s.match(/[\u3400-\u4dbf\u4e00-\u9fff]/g) || []).length;
 const countLat = (s: any) => (s.match(/[A-Za-z]/g) || []).length;
@@ -378,42 +246,6 @@ function langOn(lines: Line[], cfg: JudgeCfg) {
 }
 
 
-/**
- * 结构特征的多维投票（2026-11-24，用户说「前缀，后缀，上下左右都安排上，多算法模式」）。
- *
- * 前一版只看行首前缀。截图那段确实被抓到了，但退化不长一个样子：
- * 行尾固定、行长整齐、句首固定、套话霸占——单看一个维度换种退化就漏。
- *
- * 现在一次扫描算六个维度（algo/shape.ts），各维度独立投票，**两票以上才判红**。
- * 实测：截图段 2 票、行尾固定 3 票、行长整齐 4 票；两个正常样本都是 0 票。
- *
- * 缩进维度在「整段无缩进」时不算票——那是常态不是退化，不加这条两个正常样本各多一票。
- */
-function shapeOn(text: string, cfg: JudgeCfg) {
-  const sh = shapeOf(text, { headMin: cfg.prefixMin });
-  if (sh.n < 4) return none("shape", { blk: null, reps: 0, why: "行数 " + sh.n + " 太少", dups: [], line: null });
-  if (!sh.red) return none("shape", { blk: null, reps: 0, why: sh.why, dups: [], line: null });
-
-  const topDim = sh.dims.filter((d) => d.over).sort((a, b) => b.share - a.share)[0];
-  return Verdict.parse({
-    kind: "fold",
-    rule: "shape",
-    ev: {
-      blk: topDim ? topDim.top : "",
-      reps: sh.votes,
-      why: sh.why,
-      dups: [[topDim ? topDim.top : "", sh.votes, [0]] as [string, number, number[]]],
-      line: 1,
-      lineTo: 1,
-      scope: "collapse" as const,
-      from: 0,
-      len: sh.n,
-      unique: sh.n,
-      ratio: topDim ? topDim.share : 0,
-      truncated: false,
-    },
-  });
-}
 
 
 export function judgeThinking(text: any, patch: Partial<JudgeCfg> = {}) {
@@ -448,28 +280,9 @@ export function judgeThinking(text: any, patch: Partial<JudgeCfg> = {}) {
   // 整体判据先跑（2026-11-24 修）：它比 dup/inline 更准——不切分，一次扫描取最长匹配。
   // 原来放在它们之后，于是 31 行「做。」先被 dup 判红，run 永远轮不到。
   // 「更准的先判」不是效率问题：先判的那条决定了 ev 的形状，也就决定了处置怎么走。
-  // 结构特征放在 dup 之前：它看的是形状（行首/行尾/行长/缩进/句首/套话），比「整行」更早成立。
-  if (cfg.prefixOn) {
-    const sh = shapeOn(body, cfg);
-    if (sh.kind !== "none") return sh;
-  }
-  if (cfg.runOn) {
-    const r = longestRun(body, cfg.runMinLen);
-    if (r.over) {
-      return Verdict.parse({
-        kind: "fold",
-        rule: "run",
-        ev: { blk: "最长重复 " + r.len + " 字", reps: r.matches.length, why: "len=" + r.len, dups: [], line: 1 },
-      });
-    }
-  }
   if (cfg.dupOn) {
     const d = dupOn(voteOf(all), cfg);
     if (d.kind !== "none") return d;
-  }
-  if (cfg.inlineOn) {
-    const q = collapseOn(raw, cfg);
-    if (q.kind !== "none") return q;
   }
   if (!cfg.langOn) return none("lang", { cjk: 0, lat: 0, lines: 0, dir: cfg.langDir, sample: null });
   return langOn(lines, cfg);

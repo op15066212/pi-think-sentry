@@ -30,13 +30,11 @@ export const DEFAULTS = {
   // ratio：区间内不同句数 / 总句数 的上限。1/4 是实测分界——
   //   真退化 6%~25%，正常文本 58%~100%，中间没有样本。
   // 为什么可配：不同项目的正常写作密度不同（代码注释比散文短），写死就替使用者定了定义。
-  inline: { on: false, min: 12, ratio: 0.25 },
   lang: { on: true, dir: "zh" },
   strip: { on: true, min: 4 },
   // 整体判据：整段当作一个字符串，量 3-gram 重复率。默认关闭，
   // 与 dup/inline 并行跑一段时间，用真实数据决定谁留下。
   // 整体判据：LZ77 最长匹配。默认关闭，与 dup/inline 并行跑一段时间再决定。
-  run: { on: false, minLen: 40 },
   // 第四种形状：行首前缀的机械重复（每行都以「务实：」开头）。
   // dup 按整行、inline 按句子、run 按连续重复，三条都看不见行首。
   // 2026-11-24 关掉。理由是「量错了对象」，不是「精度低」。
@@ -54,7 +52,6 @@ export const DEFAULTS = {
   // bin/probe-shape-delta.mts --selftest 的 A 样本就是这么验的——关掉 shape 后 dup 判红。
   //
   // 代码不删：删了下一个会话会重新发明它，因为「行首集中」这个想法很自然。
-  prefix: { on: false, min: 0.5 },
   // 归一化整体判断：四个量几何平均成一个分，门槛 0.60。
   // 默认关闭——它和 shape 是同一个重叠面，两个都开会先判 shape。
   // 打开前先用 bin/probe-unified.mjs 在真实台账上跑一遍，看分离度。

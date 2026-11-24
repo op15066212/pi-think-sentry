@@ -23,19 +23,6 @@
   "intercept": {
     "on": true
   },
-  "inline": {
-    "on": false,
-    "min": 12,
-    "ratio": 0.25
-  },
-  "run": {
-    "on": false,
-    "minLen": 40
-  },
-  "prefix": {
-    "on": false,
-    "min": 0.5
-  },
   "signature": {
     "on": true,
     "keepTurns": 30
