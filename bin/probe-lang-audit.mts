@@ -37,7 +37,7 @@ for (const f of files) {
       const t = p && p.type === "thinking" ? p.thinking : null;
       if (typeof t !== "string" || t.trim().length < 40 || t.length > 20000) continue;
       total++;
-      if (judgeThinking(t, CFG).rule !== "lang") continue;
+      if (judgeThinking(t, CFG).kind === "none" || judgeThinking(t, CFG).rule !== "lang") continue;
       langRed++;
       const r = cjkOf(t);
       const k = r < 0.05 ? "纯英文(CJK<5%)" : r < 0.3 ? "英文为主(5-30%)" : r < 0.7 ? "中文为主(30-70%)" : "中文(>70%)";

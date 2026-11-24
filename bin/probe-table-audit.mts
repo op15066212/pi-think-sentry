@@ -39,16 +39,16 @@ for (const f of files) {
       if (typeof t !== "string" || t.trim().length < 40 || t.length > 20000) continue;
       row.n++;
       const v = judgeThinking(t, ON);
-      if (v.rule === "dup") { row.dup++; if (dupSamples.length < 10 && v.ev && v.ev.dups) dupSamples.push(v.ev.dups.map((d) => JSON.stringify(d[0]) + " x" + d[1]).join("  ")); }
-      if (v.rule === "inline") row.inline++;
-      if (v.rule === "lang") { row.lang++; if (langSamples.length < 20) langSamples.push(t.split("\n").filter((x) => x.trim()).slice(0, 2).map((x) => x.trim().slice(0, 70)).join(" / ")); }
+      if (v.kind !== "none" && v.rule === "dup") { row.dup++; if (dupSamples.length < 10 && v.ev && v.ev.dups) dupSamples.push(v.ev.dups.map((d) => JSON.stringify(d[0]) + " x" + d[1]).join("  ")); }
+      if (v.kind !== "none" && v.rule === "inline") row.inline++;
+      if (v.kind !== "none" && v.rule === "lang") { row.lang++; if (langSamples.length < 20) langSamples.push(t.split("\n").filter((x) => x.trim()).slice(0, 2).map((x) => x.trim().slice(0, 70)).join(" / ")); }
       // shape 命中（用关 prefix 的配置拿不到 shape，所以单独算）
       const sh = shapeOf(t, { headMin: c.prefix.min });
       if (sh.votes >= 2) {
         row.shape++;
         shapeHitTotal++;
         const vOff = judgeThinking(t, OFF);
-        if (vOff.rule === "inline") { shapeHitInline++; overlapByFile[name].inline++; }
+        if (vOff.kind !== "none" && vOff.rule === "inline") { shapeHitInline++; overlapByFile[name].inline++; }
         overlapByFile[name].shape++;
       }
     }

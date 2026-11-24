@@ -46,7 +46,7 @@ for (const f of files) {
       const maxDepth = raw.length ? Math.max(...raw.map(nestDepth)) : 1;
       const sh = shapeOf(body, { headMin: c.prefix.min });
       const v = judgeThinking(t, CFG);
-      rows.push({ maxDepth, prefixHit: sh.votes >= 2, inlineRed: v.rule === "inline", body: body.slice(0, 120) });
+      rows.push({ maxDepth, prefixHit: sh.votes >= 2, inlineRed: v.kind !== "none" && v.rule === "inline", body: body.slice(0, 120) });
     }
   }
 }
