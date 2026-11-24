@@ -64,20 +64,32 @@ for (const f of ["package.json", "tsconfig.json", "README.md", "settings.json", 
 const volatileShown = files
   .filter((abs) => VOLATILE.has(path.basename(abs)))
   .map((abs) => {
-    const buf = fs.readFileSync(abs);
-    const h = crypto.createHash("md5").update(buf).digest("hex").slice(0, 8);
-    return path.relative(ROOT, abs).replace(/\\/g, "/") + "  " + h + "  " + buf.length + "B";
+    const raw = fs.readFileSync(abs);
+    // 与 rows 同一处理：行尾不参与身份
+    const data = Buffer.from(raw.toString("utf8").replace(/\r\n/g, "\n"), "utf8");
+    const h = crypto.createHash("md5").update(data).digest("hex").slice(0, 8);
+    return path.relative(ROOT, abs).replace(/\\/g, "/") + "  " + h + "  " + data.length + "B";
   });
 
 const rows = files.filter((abs) => !VOLATILE.has(path.basename(abs)))
   .map((abs) => {
     const rel = path.relative(ROOT, abs).replace(/\\/g, "/");
-    const buf = fs.readFileSync(abs);
+    const raw = fs.readFileSync(abs);
+    // 行尾规范化（2026-11-24，pi 插件2 抓到 cfa4b751 与 a2becc81 对不上之后查出来的根因）：
+    // 本仓 core.autocrlf=true，同一次 commit 在不同的 checkout 之后，工作区字节数会差
+    // 「行数」那么多（LF -> CRLF 每行多 1 字节）。README 是 545 行，disk 28450 / git 27905，
+    // 差的正好 545。指纹算的是工作区字节，于是同一个 commit 能算出两个总指纹。
+    //
+    // 「同 HEAD + status 0 => 同指纹」这条判据本来是对的，但它有个隐含前提：
+    // 工作区字节只由 commit 决定。core.autocrlf=true 打破了这个前提。
+    // 修法是指纹只认内容不认行尾：先把 \r\n 规范成 \n 再算 md5 与字节。
+    const buf = raw.toString("utf8").replace(/\r\n/g, "\n");
+    const data = Buffer.from(buf, "utf8");
     return {
       rel,
-      md5: crypto.createHash("md5").update(buf).digest("hex"),
-      bytes: buf.length,
-      lines: buf.toString("utf8").split("\n").length,
+      md5: crypto.createHash("md5").update(data).digest("hex"),
+      bytes: data.length,
+      lines: buf.split("\n").length,
     };
   })
   .sort((a, b) => a.rel.localeCompare(b.rel));

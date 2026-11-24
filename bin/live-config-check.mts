@@ -1,37 +1,45 @@
 // 一次性实测：settings.json 的开关是否真的走到 judgeThinking
-// 2026-11-24：上一次写这个探针时猜错了导出名（installGuard 是默认导出，不是命名导出），
-// 报 ERR_MODULE_NOT_FOUND。这次不碰 installGuard，直接测判据层。
+//
+// 2026-11-24 两次写错，都记在下面：
+//   1) 上一版猜错导出名（installGuard 是默认导出，写成了命名导入）→ ERR_MODULE_NOT_FOUND
+//   2) 上一版把 judgeThinking 当成 (text, skip, cfg) 三个参数，
+//      实际签名是 (text, patch: Partial<JudgeCfg>) 两个参数——第三个被静默忽略。
+//      改完才发现整个脚本从来没按 settings 跑过，一直用的默认配置。
+//   这里给每一条断言都加「证伪」，就是为了让这种静默失效无处可躲。
 import { readConfig } from "../src/config.ts";
-import { judgeThinking, judgeCfg } from "../src/judges.ts";
+import { judgeThinking } from "../src/judges.ts";
 
 const c = readConfig();
 console.log("settings 键：", Object.keys(c).sort().join(" "));
 console.log("dup.on =", c.dup.on, " lang.on =", c.lang.on, " strip.on =", c.strip.on);
 
-const dupSample = Array(6).fill("做。").join("\n");
-const langSample = "The user reports pi-undo pre-input snapshot failed with git init exit code 128.\n".repeat(4);
+// 样本必须在「不重复」与「重复」上分得开，否则会被前面的判据先抓走。
+// lang 用单行、无重复的纯英文——repeat(4) 会被 dup.min=4 抓掉，lang 永远轮不到。
+const dupSample = Array(6).fill("做。").join(String.fromCharCode(10));
+const langSample = "The pre-input snapshot failed with exit code 128 while creating the session directory.";
 const clean = "今天把磁盘扫了一遍，发现三个文件的时间戳对不上。先把它们的路径列出来。";
 
-const live = judgeCfg({
-  dupOn: c.dup.on, dupMin: c.dup.min,
-  langOn: c.lang.on, langDir: c.lang.dir,
-});
+const judge = (text, patch) => judgeThinking(text, patch);
 
-const show = (label, text) => {
-  const v = judgeThinking(text, [], live);
-  console.log(label.padEnd(12), "→", v.kind, "/", v.rule);
-  return v;
-};
+const line = (label, v, extra) => console.log(label.padEnd(16), "→", String(v.kind).padEnd(8), "/", String(v.rule).padEnd(6), extra || "");
 
-show("dup 样本", dupSample);
-show("lang 样本", langSample);
-show("正常文本", clean);
+// 1) 按 settings 跑三个样本
+line("dup 样本", judge(dupSample));
+line("lang 样本", judge(langSample));
+line("正常文本", judge(clean));
 
-// 证伪：把 dup 关掉，同一 dup 样本必须不再判红
-const dupOff = judgeCfg({ dupOn: false, langOn: c.lang.on, langDir: c.lang.dir });
-const v = judgeThinking(dupSample, [], dupOff);
-// fold 才是 dup 判据的动作。strip 也产 dup rule（RULE_OF.strip = ["dup"]），
-// 所以看 rule 会误判——这是 2026-11-24 我这个探针第一版写错的地方。
-const ok = v.kind !== "fold";
-console.log("dup 关掉后  →", v.kind, "/", v.rule, ok ? "（开关真的接在判据上）" : "（开关没接上！）");
-process.exit(ok ? 0 : 1);
+// 2) dup 的证伪：关掉后同一样本不得再出 fold
+const dupOff = judge(dupSample, { dupOn: false });
+const dupOk = dupOff.kind !== "fold";
+line("dup 关掉后", dupOff, dupOk ? "（dup 开关接在判据上）" : "（dup 那格没验到！）");
+
+// 3) lang 的证伪：关掉后同一句必须变 none
+//    判据看 kind 不看 rule：langOn=false 时返回 none("lang")，那个 none 的 rule 也是 lang。
+const langOff = judge(langSample, { langOn: false });
+const langOk = langOff.kind === "none";
+line("lang 关掉后", langOff, langOk ? "（lang 开关接在判据上）" : "（lang 那格没验到！）");
+
+const allOk = dupOk && langOk;
+console.log("");
+console.log(allOk ? "两个开关都实测接到了判据上" : "有开关没验到，见上面标红的行");
+process.exit(allOk ? 0 : 1);
