@@ -6,10 +6,6 @@ import { readConfig } from "../src/config.ts";
 const c = readConfig();
 const CFG = judgeCfg({
   dupOn: c.dup.on, dupMin: c.dup.min,
-  inlineOn: c.inline.on, inlineMin: c.inline.min, inlineRatio: c.inline.ratio,
-  runOn: c.run.on, runMinLen: c.run.minLen,
-  prefixOn: false, prefixMin: c.prefix.min,
-  unifiedOn: c.unified.on, unifiedMin: c.unified.min,
   langOn: c.lang.on, langDir: c.lang.dir,
 } as any);
 
