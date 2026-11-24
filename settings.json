@@ -3,8 +3,8 @@
   "inject": {
     "on": true,
     "texts": {
-      "dup": "\n[第 {{blockLine}} 行起重复 {{blockReps}} 次，已折叠]",
-      "lang": "\n[{{lines}} 行不是中文，已改]",
+      "dup": "\n[已折叠：重复]",
+      "lang": "\n[已改：语言]",
       "clean": "",
       "inline": ""
     }

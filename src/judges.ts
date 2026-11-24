@@ -135,10 +135,29 @@ const dropInjectedTail = (ls: Line[], skip: string[]): Line[] => {
 // 测试入口：同一个函数，只是给外面一个名字。不复制实现——
 // 两处各写一遍，测的就不是跑的那一个了。
 export const exciseInjectedForTest = (t: string, skip: readonly string[] | undefined) => exciseInjected(t, skip);
+/**
+ * 历史处置痕迹（2026-11-24，回灌实测之后加）。
+ *
+ * 数据：外部附注·已删重复 1088 次、当前附注·第N行起重复 444 次，
+ * 时间从 2026-11-18 传到 2026-11-21 —— 处置痕迹本身变成了新的重复源。
+ *
+ * 最直接的证据：一段被拦之后的思考写着「（不写重复行。）」，紧接着三行「做。」。
+ *
+ * 自动机只认字面，所以这些**形状固定**的旧痕迹要逐条列出来。
+ * 带数字的（[第 35 行起重复 8 次]）认不住——那正是这次把新文案改成不带数字的原因。
+ */
+const LEGACY_TRACES = [
+  "[外部附注：已删重复。]",
+  "[外部附注：已删重复 4 处。]",
+  "[已折叠：重复]",
+  "[已改：语言]",
+];
+
 function exciseInjected(text: string, skip: readonly string[] | undefined): string {
   // skip 可能没给：judgeCfg() 一定有，但调用方直接传部分 cfg 时会是 undefined。
   // 崩在这儿比判错更糟——判据抛异常，上层只能记 judgeErrors，看不出是哪一条判据坏的。
-  const pats = (Array.isArray(skip) ? skip : []).filter((x) => typeof x === "string" && x.length >= 4);
+  const pats = [...(Array.isArray(skip) ? skip : []), ...LEGACY_TRACES]
+    .filter((x) => typeof x === "string" && x.length >= 4);
   if (!pats.length) return text;
   const ac = buildAC(pats);
   const hits = ac.scan(text);
