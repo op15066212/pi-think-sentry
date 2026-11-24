@@ -24,8 +24,17 @@ export type Match = { at: number; dist: number; len: number };
 export type Lz = {
   /** 每个匹配：指回多远、多长。 */
   matches: Match[];
-  /** 最长的那个匹配有多长。退化的核心度量。 */
+  /** 最长的那个匹配有多长（所有匹配）。 */
   longest: number;
+  /**
+   * 最长的**自然语言**匹配有多长（2026-11-24 回放补）。
+   *
+   * 历史回放在 15027 个真实思考段上测：`longest` 判红 68.8%，例子全是
+   * `C:\Users\15066212pp`、`find -maxdepth`、`*radical*` 这类技术串重复。
+   * 那不是退化，是写代码时正常的重复引用。
+   * 退化的形状是**同一句自然语言反复出现**，所以这一档只算中文占比 >= 80% 的匹配。
+   */
+  longestNatural: number;
   /** 字面量总长（没被任何匹配覆盖的部分）。 */
   literal: number;
   /**
@@ -42,13 +51,14 @@ export type Lz = {
 export function lz77(text: string): Lz {
   const n = text.length;
   if (n < MIN_MATCH * 2) {
-    return { matches: [], longest: 0, literal: n, deduped: text };
+    return { matches: [], longest: 0, longestNatural: 0, literal: n, deduped: text };
   }
 
   const head = new Int32Array(HASH_SIZE).fill(-1);
   const prev = new Int32Array(n).fill(-1);
   const matches: Match[] = [];
   let longest = 0;
+  let longestNatural = 0;
   let covered = 0;
   let i = 0;
 
@@ -73,6 +83,12 @@ export function lz77(text: string): Lz {
     if (bestLen >= MIN_MATCH) {
       matches.push({ at: i, dist: i - matchStart, len: bestLen });
       if (bestLen > longest) longest = bestLen;
+      // 自然语言档：这一段里中文字符占 80% 以上才算「同一句话在重复」。
+      if (bestLen > longestNatural) {
+        const piece = text.slice(i, i + bestLen);
+        const cjk = (piece.match(/[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/g) || []).length;
+        if (cjk >= bestLen * 0.8) longestNatural = bestLen;
+      }
       covered += bestLen;
       // 匹配区间里每个位置都进表，否则后面的匹配找不到更近的引用
       for (let k = 0; k < bestLen; k++) {
@@ -91,7 +107,7 @@ export function lz77(text: string): Lz {
     }
   }
 
-  return { matches, longest, literal: n - covered, deduped: dedupeByMatches(text, matches) };
+  return { matches, longest, longestNatural, literal: n - covered, deduped: dedupeByMatches(text, matches) };
 }
 
 /**

@@ -76,3 +76,28 @@ test("纯函数：同一输入两次调用结果一致，输入不被改写", ()
   assert.equal(a.matches.length, b.matches.length);
   assert.equal(t, copy, "输入不能被改写");
 });
+
+// 自然语言档（2026-11-24 回放补）：历史回放在 15030 个真实思考段上测，
+// 用 longest 判红 68.8%，例子全是路径、命令行参数的重复——那不是退化。
+// longestNatural 只算中文占比 >= 80% 的匹配，修后同一批数据降到 5.4%。
+test("技术串重复：longest 高，longestNatural 低", () => {
+  const path = "C:\\Users\\15066212pp\\AppData\\Roaming\\PiDeck";
+  const t = "先看 " + path + " 这个目录。然后确认 " + path + " 里的配置。";
+  const r = lz77(t);
+  assert.ok(r.longest >= 12, "路径重复会形成长匹配，实际 " + r.longest);
+  assert.ok(r.longestNatural < 12, "但那是技术串，不该算自然语言重复，实际 " + r.longestNatural);
+});
+
+test("自然语言重复：两档都高", () => {
+  const line = "这一段的结论是重复出现了很多次所以应当被判红。";
+  const t = (line + "\n").repeat(3);
+  const r = lz77(t);
+  assert.ok(r.longest >= 12, "实际 " + r.longest);
+  assert.ok(r.longestNatural >= 12, "中文句子重复，自然语言档也该高，实际 " + r.longestNatural);
+});
+
+test("命令参数重复：longestNatural 不跟着涨", () => {
+  const t = "find 里 -maxdepth 必须放在前面。再看 -maxdepth 的位置对不对。";
+  const r = lz77(t);
+  assert.ok(r.longestNatural < 12, "命令参数不是自然语言，实际 " + r.longestNatural);
+});
