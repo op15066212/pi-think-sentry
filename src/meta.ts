@@ -43,6 +43,17 @@ id: "lang", kind: "verdict", module: "features/lang.ts",
     消去: "同一块换 dir=zh 与 dir=en，方向应对调",
     反例: "整块英文思考、中文只有一行",
   },
+  // 2026-11-24 审查补：judges.ts 产出三个 rule（dup / inline / lang），
+  // meta 原来只声明了两个——inline 这条判据存在、有测试、在跑，却没进规则表。
+  // 「规则集闭合」不是修辞：产出里有的，声明里必须也有，否则四件永远缺一件。
+  {
+id: "inline", kind: "verdict", module: "features/inline.ts",
+    prop: "一段内不同句占比 < inline.ratio 且句数 ≥ inline.min 时判红",
+    形成: "inline.min / inline.ratio 在 src/defaults.ts（默认 12 / 0.25）",
+    引入: "judges.ts 的 fold 判据；npm test 期望 rc=0",
+    消去: "test/ 里句级用例与真实退化回放算同一件事",
+    反例: "一段 40 句只有 3 种：占比 7.5% < 25%，判红",
+  },
   {
 id: "inject-thinking-only", kind: "mechanism", module: "features/inject.ts",
     prop: "只对 type=thinking 的块动手，别的块原样返回",
