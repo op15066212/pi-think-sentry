@@ -109,17 +109,6 @@ id: "shape", kind: "verdict", module: ["features/prefix.ts", "algo/shape.ts"],
     消去: "bin/probe-shape.mjs 的三个退化样本与两个正常样本各得几票，与 test/shape.test.ts 算同一件事",
     反例: "截图那段 18 行全部以「务实：」开头：行首 100% + 句首 95% = 2 票，判红",
   },
-  // 2026-11-24：归一化整体判断。前六条各自切分（按行、按句、按 n-gram），
-  // 这一条不切分：把整段看成一张图 + 一个转移矩阵 + 一个置换群 + 一组子结构，
-  // 四个量天然在 [0,1]，几何平均成一个分，只需要一个门槛。
-  {
-id: "unified", kind: "verdict", module: ["features/unified.ts", "algo/unified.ts"],
-    prop: "群论 1/p、转移熵、最高频句占比、3/4-gram 重复率 四维几何平均 < 0.60 时判红",
-    形成: "minScore 默认 0.60，出自实测间隙：退化 <=0.48，正常 >=0.80，中间没有样本",
-    引入: "node --experimental-strip-types --test test/unified.test.ts；期望 19 条全过、rc=0。其中 5 条从 judgeThinking 入口进，专门挡「写了没接线」",
-    消去: "用加权和替代几何平均，截图那段从 0.48 变成 0.59 越线变绿——两种合成给出不同判决，说明合成方式是真值来源，不是修辞",
-    反例: "18 行全以「务实：」开头：前三维奇高，只有 n-gram 重复率 0.80，几何平均 0.48 < 0.60，判红",
-  },
   // 2026-11-24：thinkingSignature 清理。用户要的：
   //   「每一个大轮完成，thinkingSignature 清理签名。这个也配置文件化。
   //    可以选近几个大轮，是否启用它。」

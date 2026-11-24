@@ -36,10 +36,6 @@
     "on": false,
     "min": 0.5
   },
-  "unified": {
-    "on": false,
-    "min": 0.6
-  },
   "signature": {
     "on": true,
     "keepTurns": 30

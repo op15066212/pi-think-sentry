@@ -58,7 +58,6 @@ export const DEFAULTS = {
   // 归一化整体判断：四个量几何平均成一个分，门槛 0.60。
   // 默认关闭——它和 shape 是同一个重叠面，两个都开会先判 shape。
   // 打开前先用 bin/probe-unified.mjs 在真实台账上跑一遍，看分离度。
-  unified: { on: false, min: 0.6 },
   // 清理 thinkingSignature，只保留最近 keepTurns 个大轮（用户 2026-11-24 要的）。
   // 默认关闭：它改的是历史 entry，第一次开之前应该先在一个会话上看一眼效果。
   // keepTurns=30（用户定的，按最小轮）：一条 assistant 消息一轮。小轮就要放宽，：有些 provider 要求最近的消息带签名才能续上。

@@ -133,7 +133,6 @@ const applyCfg = (c: any) => {
     inlineOn: c.inline.on, inlineMin: c.inline.min, inlineRatio: c.inline.ratio,
     runOn: c.run.on, runMinLen: c.run.minLen,
     prefixOn: c.prefix.on, prefixMin: c.prefix.min,
-    unifiedOn: c.unified.on, unifiedMin: c.unified.min,
     langOn: c.lang.on, langDir: c.lang.dir, boundaryMinExempt: c.intercept.boundaryMinExempt,
     // 三份模板都要剥：judgeCfg 按换行切，所以 join 成一行（传数组会被 String() 变成逗号拼接）。
       skip: c.inject.on ? [c.inject.texts.dup, c.inject.texts.lang, c.inject.texts.clean].filter(Boolean).join(String.fromCharCode(10)) : "",
