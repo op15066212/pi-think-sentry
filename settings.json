@@ -24,13 +24,13 @@
     "on": true
   },
   "inline": {
-    "on": true,
+    "on": false,
     "min": 12,
     "ratio": 0.25
   },
   "run": {
     "on": false,
-    "minLen": 12
+    "minLen": 40
   },
   "prefix": {
     "on": false,
@@ -39,5 +39,9 @@
   "unified": {
     "on": false,
     "min": 0.6
+  },
+  "signature": {
+    "on": true,
+    "keepTurns": 30
   }
 }

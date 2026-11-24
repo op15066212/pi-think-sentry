@@ -17,7 +17,9 @@ export default {
   defaults: defaultsOf("inline"),
   configure(raw: any) {
     const r = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
-    const on = asBool(true, r.on, "inline.on");
+    // 兜底值从 defaults.ts 取，不在这里写死（2026-11-24 同一处踩了三次）。
+    const d = defaultsOf("inline");
+    const on = asBool(d.on === true, r.on, "inline.on");
     const min = threshold(r.min, INLINE_MIN, "inline.min");
     // ratio 是比例，不是计数：threshold() 判的是整数门槛，这里单独校验 0 < r < 1。
     // 写 1 会让任何区间都「坍缩」（含正常文本）；写 0 会让判据永不成立。

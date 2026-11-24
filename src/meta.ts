@@ -120,6 +120,20 @@ id: "unified", kind: "verdict", module: ["features/unified.ts", "algo/unified.ts
     消去: "用加权和替代几何平均，截图那段从 0.48 变成 0.59 越线变绿——两种合成给出不同判决，说明合成方式是真值来源，不是修辞",
     反例: "18 行全以「务实：」开头：前三维奇高，只有 n-gram 重复率 0.80，几何平均 0.48 < 0.60，判红",
   },
+  // 2026-11-24：thinkingSignature 清理。用户要的：
+  //   「每一个大轮完成，thinkingSignature 清理签名。这个也配置文件化。
+  //    可以选近几个大轮，是否启用它。」
+  // 它不是判红，是处置（mechanism）：turn_end 时改历史 entry 的内容。
+  // keepTurns 数的是**最小轮**——每一条 assistant 消息算一轮，不是一次对话往返。
+  // 一次对话里可能有多个 assistant 消息（工具调用中间那些），按对话往返数会少算。
+  {
+id: "signature-clean", kind: "mechanism", module: ["features/signature.ts", "algo/signature.ts"],
+    prop: "turn_end 清掉最近 keepTurns 个 assistant 轮次之外的 thinkingSignature",
+    形成: "signature.on / signature.keepTurns 在 src/defaults.ts（默认 true / 30，上限 300）",
+    引入: "node --experimental-strip-types --test test/signature.test.ts；期望 11 条全过、rc=0",
+    消去: "planSignatureCleanup 是纯函数：直接喂 entries 数组与 keepTurns，不经 ctx、不碰 IO",
+    反例: "keepTurns=0 时若 slice 下标写成 -keepTurns（漏了 max 0），会清掉一条本该保留的",
+  },
   {
 id: "inject-thinking-only", kind: "mechanism", module: "features/inject.ts",
     prop: "只对 type=thinking 的块动手，别的块原样返回",

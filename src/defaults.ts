@@ -30,13 +30,13 @@ export const DEFAULTS = {
   // ratio：区间内不同句数 / 总句数 的上限。1/4 是实测分界——
   //   真退化 6%~25%，正常文本 58%~100%，中间没有样本。
   // 为什么可配：不同项目的正常写作密度不同（代码注释比散文短），写死就替使用者定了定义。
-  inline: { on: true, min: 12, ratio: 0.25 },
+  inline: { on: false, min: 12, ratio: 0.25 },
   lang: { on: true, dir: "zh" },
   strip: { on: true, min: 4 },
   // 整体判据：整段当作一个字符串，量 3-gram 重复率。默认关闭，
   // 与 dup/inline 并行跑一段时间，用真实数据决定谁留下。
   // 整体判据：LZ77 最长匹配。默认关闭，与 dup/inline 并行跑一段时间再决定。
-  run: { on: false, minLen: 12 },
+  run: { on: false, minLen: 40 },
   // 第四种形状：行首前缀的机械重复（每行都以「务实：」开头）。
   // dup 按整行、inline 按句子、run 按连续重复，三条都看不见行首。
   // 2026-11-24 关掉。理由是「量错了对象」，不是「精度低」。
@@ -59,6 +59,10 @@ export const DEFAULTS = {
   // 默认关闭——它和 shape 是同一个重叠面，两个都开会先判 shape。
   // 打开前先用 bin/probe-unified.mjs 在真实台账上跑一遍，看分离度。
   unified: { on: false, min: 0.6 },
+  // 清理 thinkingSignature，只保留最近 keepTurns 个大轮（用户 2026-11-24 要的）。
+  // 默认关闭：它改的是历史 entry，第一次开之前应该先在一个会话上看一眼效果。
+  // keepTurns=30（用户定的，按最小轮）：一条 assistant 消息一轮。小轮就要放宽，：有些 provider 要求最近的消息带签名才能续上。
+  signature: { on: true, keepTurns: 30 },
   inject: { on: true, texts: { dup: "", lang: "", clean: "", inline: "" } },
   binding: { allowGateway: false },
 } as const;

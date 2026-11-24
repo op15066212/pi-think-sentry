@@ -12,6 +12,7 @@ import { templateKeyOf } from "./verdict.ts";
 import strip from "./features/strip.ts";
 import inject from "./features/inject.ts";
 import intercept, { SAY_BLOCK, SAY_LANG } from "./features/intercept.ts";
+import { planSignatureCleanup } from "./algo/signature.ts";
 
 export { SAY_BLOCK, SAY_LANG };
 
@@ -526,6 +527,22 @@ export default async function installGuard(pi: any) {
     const entries = [];
     if (withMark !== source) {
       entries.push({ type: "context_edit", targetId: event.messageEntryId, replacement: { content: withMark } });
+    }
+    // 清理 thinkingSignature，只保留最近 keepTurns 个大轮（2026-11-24 用户要的）。
+    // ctx.sessionManager.getEntries() 是唯一能拿到历史 entry 的接口；
+    // context_edit 的 targetId 能指向任意 entry，所以清历史不需要改 jsonl（B1 边界不变）。
+    if (c.signature.on) {
+      try {
+        // getEntries() 是唯一能拿到历史 entry 的接口；context_edit 的 targetId
+        // 能指向任意 entry，所以清历史不需要改 jsonl（B1 边界不变）。
+        const all: any[] = (ctx as any)?.sessionManager?.getEntries?.() ?? [];
+        const edits = planSignatureCleanup(all, c.signature.keepTurns);
+        for (const ed of edits) entries.push(ed);
+        if (edits.length) trace("hook", { h: "turn_end", phase: "signature", cleaned: edits.length });
+      } catch (e: any) {
+        // 清签名失败不该影响这一轮的其它提案：记一笔，继续。
+        trace("hook", { h: "turn_end", phase: "signature-error", why: String(e?.message || e) });
+      }
     }
     if (!entries.length) return;
     // 返回 entries 会替换掉「这一轮已经提案的那些」，不是追加（pi 文档：returning entries or

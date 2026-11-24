@@ -30,10 +30,12 @@ export default {
   defaults: defaultsOf("run"),
   configure(raw: any) {
     const r = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
-    const on = asBool(false, r.on, "run.on");
+    // 兜底值从 defaults.ts 取，不在这里写死（2026-11-24 同一处踩过两次）。
+    const d = defaultsOf("run");
+    const on = asBool(d.on === true, r.on, "run.on");
     // minLen：最长重复达到多少字符算卡住。12 是实测空档的下沿——
     // 正常文本实测最长 3，退化最短 14，12 离两边各留一段余量。
-    const minLen = threshold(r.minLen, 12, "run.minLen");
+    const minLen = threshold(r.minLen, d.minLen, "run.minLen");
     return { on, minLen };
   },
 };

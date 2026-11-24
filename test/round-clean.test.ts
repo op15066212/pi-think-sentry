@@ -24,7 +24,9 @@ const DEGEN_A = "跑。ok。".repeat(10);                                   // 2
 const DEGEN_B = Array.from({ length: 16 }, (_, i) => ["执行。ok。", "好。执行。ok。"][i % 2]).join("\n");
 
 test("轮级清洗：一轮里两段退化，turn_end 都要折叠", async () => {
-  fs.writeFileSync(TMP_CFG, JSON.stringify({}));   // 用默认配置
+  // 这条测的是 inline 的折叠，所以显式开 inline：2026-11-24 之后它默认关，
+  // 而「测哪条就只开哪条」是 P20 的要求——用默认值会测到别的判据上去。
+  fs.writeFileSync(TMP_CFG, JSON.stringify({ inline: { on: true } }));
   const p = fakePi();
   await installGuard(p);
   await call(p, "before_agent_start", {});
