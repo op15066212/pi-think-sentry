@@ -75,7 +75,7 @@ if (arg === "--verify") {
     process.exit(2);
   }
   const ok = want === total;
-  console.log((ok ? "SAME " : "DIFF ") + "现取=" + total + " 期望=" + want);
+  console.log((ok ? "SAME " : "DIFF ") + "现取=" + total + " 期望=" + want + " @ " + new Date().toISOString().replace(/\.\d+Z$/, "Z"));
   process.exit(ok ? 0 : 1);
 }
 
@@ -98,5 +98,11 @@ for (const r of rows) {
   }
   console.log("  " + r.md5.slice(0, 8) + "  " + String(r.bytes).padStart(7) + "B  " + String(r.lines).padStart(4) + "L  " + r.rel);
 }
-console.log("\n文件数 " + rows.length + "  总字节 " + rows.reduce((a, r) => a + r.bytes, 0));
+// 采样时刻跟着指纹一起打。
+// 2026-11-24（pi 插件2 复核挑出）：「7.5% 与 7.7%」看起来像有人算错，
+// 实际是两个时刻、同一份被追加的会话。缺了时刻，两个都对数看起来像有一个错。
+const stamp = new Date().toISOString().replace(/\.\d+Z$/, "Z");
+console.log("");
+console.log("文件数 " + rows.length + "  总字节 " + rows.reduce((a, r) => a + r.bytes, 0));
 console.log("总指纹 " + total);
+console.log("采样时刻 " + stamp + "   （引用这个指纹时必须连这一行一起引）");
