@@ -88,6 +88,14 @@ v3 覆盖前两版的特例：连续 37 句 uniq=1、交替 AB uniq=2、换词�
 判据同时测两个入口——它们走两段不同的代码，测一个不能证明另一个；
 把 `--json` 里的 `config` 字段删掉必须红（验过，红）。
 
+**十三 证明项精确到这一条。**
+七条规则的「引入」原来都写「npm test 期望 rc=0」——批次命令，红了只知道 203 条里有 1 条红。
+换成各自单文件命令并写明用例数。
+第一次改坏 `src/features/dup.ts` 测试没红，查下去才看清那个文件只是配置单元，判据在 `judges.ts`——
+「module」与「引入」指的不是同一个文件，现在两条的指向在表里摆明了。
+验证：改坏 `judges.ts` 的 dup 判定（`>=` 改 `>`），只有 `test/dup.test.ts` 红 6 条，
+`test/guard.test.ts` 一条不动。判据写成代码：出现 `npm test` 就红。
+
 判据：`npm test` 195/195；`test/collapse.test.ts` 11 条、`test/round-clean.test.ts` 2 条、
 `test/no-reflow.test.ts` 3 条、`test/empty-frame.test.ts` 2 条。
 

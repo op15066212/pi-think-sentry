@@ -16,6 +16,29 @@
 
 ## 元理论：依赖类型理论（唯一）
 
+### 证明项精确到这一条
+
+七条规则，每条的「引入」格都是一条**只跑自己那个测试文件**的命令，不是 `npm test`：
+
+```text
+dup                  → test/dup.test.ts            16 条
+lang                 → test/guard.test.ts          12 条
+inline               → test/collapse.test.ts       11 条
+inject-thinking-only → test/inject.test.ts          5 条
+intercept-en-only    → test/deadlock.test.ts        8 条
+strip-empty          → test/empty-frame.test.ts     2 条
+binding-anthropic    → test/r7.test.ts              6 条
+```
+
+**为什么非要这样**：跑全量测试，红了只知道「203 条里有 1 条红」，还得再找是哪一条。
+精确到文件，红了就是这条规则红了，直接去看。
+
+验证方法是反过来改坏一处：把 `judges.ts` 里 dup 的 `>=` 改成 `>`，
+`test/dup.test.ts` 红 6 条，`test/guard.test.ts` 一条不动。**这才是「只覆盖这一条」的证据。**
+
+判据也写成了代码：`引入` 格必须匹配 `--test test/<文件>.test.ts`，出现 `npm test` 就红。
+
+
 `Γ ⊢ 规则 : Prop`。一条规则就是一个类型；说它成立 = 指得出住在这个类型里的居民。没有居民就不成立，写 `sorry`，不写「显然」。
 
 四件缺一不算规则：
