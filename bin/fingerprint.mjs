@@ -22,8 +22,16 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DIRS = ["src", "test", "bin", "scripts"];
 const EXTS = new Set([".ts", ".mts", ".mjs", ".js", ".json"]);
 
-// settings.json 会随运行变化（用户改开关），不算「代码」。
-// 但它是行为的一部分，所以单独列在后面，不进总指纹。
+// 两个顶层文件要不要进总指纹，判据是「它变是因为代码变了，还是因为运行状态变了」。
+//
+//   README.md      进。口径上限写在里面，双方认可的是它。它变只因为有人改了字。
+//   settings.json  不进。用户改一个开关它就变，指纹跟着变就分不清
+//                  「代码改了」与「有人动了配置」。它单独列在输出里给人看。
+//   package-lock   不进。npm install 会动它，与代码改动无关。
+//
+// 2026-11-24（pi 插件2 抓的）：这个常量原来定义了却从未被引用，
+// 而注释写着「不进总指纹」、代码又把 settings.json 放进了 files。
+// 注释说 A，代码做 B——正是这一路在修的形状。现在它真的被用了。
 const VOLATILE = new Set(["settings.json", "package-lock.json"]);
 
 function walk(dir, out = []) {
@@ -49,8 +57,9 @@ for (const f of ["package.json", "tsconfig.json", "README.md", "settings.json"])
   const p = path.join(ROOT, f);
   if (fs.existsSync(p)) files.push(p);
 }
+const volatileShown = files.filter((abs) => VOLATILE.has(path.basename(abs))).map((abs) => path.relative(ROOT, abs).replace(/\\/g, "/"));
 
-const rows = files
+const rows = files.filter((abs) => !VOLATILE.has(path.basename(abs)))
   .map((abs) => {
     const rel = path.relative(ROOT, abs).replace(/\\/g, "/");
     const buf = fs.readFileSync(abs);
@@ -108,3 +117,6 @@ console.log("");
 console.log("文件数 " + rows.length + "  总字节 " + rows.reduce((a, r) => a + r.bytes, 0));
 console.log("总指纹 " + total);
 console.log("采样时刻 " + stamp + "   （引用这个指纹时必须连这一行一起引）");
+if (volatileShown.length) {
+  console.log("不进总指纹（随运行变化）：" + volatileShown.join(" "));
+}

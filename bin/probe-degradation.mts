@@ -3,6 +3,14 @@ import fs from "node:fs";
 import { judgeThinking } from "../src/judges.ts";
 
 const f = process.argv[2];
+if (!f) {
+  console.error("用法：node --experimental-strip-types bin/probe-degradation.mts <会话 jsonl>");
+  process.exit(2);
+}
+if (!fs.existsSync(f)) {
+  console.error("文件不存在：" + f);
+  process.exit(2);
+}
 const raw = fs.readFileSync(f, "utf8");
 const lines = raw.split("\n").filter(Boolean);
 const thinks: string[] = [];
