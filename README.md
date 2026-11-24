@@ -226,7 +226,9 @@ binding-anthropic    → test/r7.test.ts              6 条
 判据：
 
 ```bash
+npm run verify                              # 一条命令跑完下面两条（这是总闸）
 npm test                                    # 全部；条数以运行时为准，不写进文档
+node scripts/gate.mjs                       # scripts/check-*.mjs 全部
 node --experimental-strip-types --test test/round-clean.test.ts
 npm run e2e                                 # 真实退化样本端到端（判据→拦截→折叠）
 ```
@@ -465,8 +467,8 @@ node bin/status.mjs --json
 ## 判据
 
 ```bash
-npm test                                                          # rc=0
-node --experimental-strip-types scripts/check-rules-coverage.mjs   # 6 条规则，0 缺口
+npm run verify                                                    # rc=0（npm test && gate）
+node --experimental-strip-types scripts/check-rules-coverage.mjs   # 7 条规则，0 缺口
 node verify-dtt.mjs                                               # 元理论节齐、四件齐
 ```
 ## 改这个插件时的一条硬规矩
