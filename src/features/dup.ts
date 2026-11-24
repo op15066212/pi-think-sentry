@@ -16,8 +16,12 @@ export default {
   name: "dup",
   defaults: defaultsOf("dup"),
   configure(raw: any) {
+    // 兜底值一律从 defaults.ts 取，不在这里再写一份字面量。
+    // 2026-11-24：两处各写一遍时，改了 defaults 忘了这里，
+    // 「坏 JSON 回默认」拿到的就不是默认值，测试当场红。
+    const d = defaultsOf("dup");
     const r = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
-    const on = asBool(true, r.on, "dup.on");
+    const on = asBool(d.on === true, r.on, "dup.on");
     const min = threshold(r.min, DUP_MIN, "dup.min");
     // 判据的配置由 index.ts 投影成 JudgeCfg 传下去（2026-11-22）：这里不写全局。
     return { on, min };

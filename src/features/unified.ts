@@ -17,12 +17,16 @@ export default {
   name: "unified",
   defaults: defaultsOf("unified"),
   configure(raw: any) {
+    // 兜底值一律从 defaults.ts 取，不在这里再写一份字面量。
+    // 2026-11-24：两处各写一遍时，改了 defaults 忘了这里，
+    // 「坏 JSON 回默认」拿到的就不是默认值，测试当场红。
+    const d = defaultsOf("unified");
     const r = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
-    const on = asBool(false, r.on, "unified.on");
+    const on = asBool(d.on === true, r.on, "unified.on");
     // min 是分数门槛：四个量几何平均后的分低于它就算退化。
     // 0.6 出自实测间隙——退化样本 0.00 / 0.41 / 0.48，正常样本 0.80 / 0.86，中间没有样本。
     // 下限 0.05 是防「调成 0 就永不判红」这种恒假绿。
-    const min = threshold(r.min, 0.6, "unified.min");
+    const min = threshold(r.min, d.min, "unified.min");
     if (min > 1) throw new Error("unified.min 是分数，不能大于 1，实际 " + String(r.min));
     if (min < 0.05) throw new Error("unified.min 太小（" + String(min) + "），门槛低于 0.05 等于永不判红");
     return { on, min };

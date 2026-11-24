@@ -148,27 +148,21 @@ const dropInjectedTail = (ls: Line[], skip: string[]): Line[] => {
 // 两处各写一遍，测的就不是跑的那一个了。
 export const exciseInjectedForTest = (t: string, skip: readonly string[] | undefined) => exciseInjected(t, skip);
 /**
- * 历史处置痕迹（2026-11-24，回灌实测之后加）。
+ * 历史处置痕迹：清单在 sentences.ts 的 MARK_TEXTS，这里只 import，不另写一份。
  *
- * 数据：外部附注·已删重复 1088 次、当前附注·第N行起重复 444 次，
- * 时间从 2026-11-18 传到 2026-11-21 —— 处置痕迹本身变成了新的重复源。
+ * 2026-11-24 修：原来是两处各写一遍——这里 4 种逐字，sentences.ts 的 MARK_RE 只有 2 种带数字的。
+ * 于是最常出现的两种（实测 1088 次 + 444 次）在 collapse 判据里从来没被剥掉：
+ * 10 句正常内容加 5 行这种标记，judgeThinking 直接判红 fold/inline。
+ * 同一件事两个像，一边新增另一边不知道——这正是「处置自己制造了下一次判红」。
  *
- * 最直接的证据：一段被拦之后的思考写着「（不写重复行。）」，紧接着三行「做。」。
- *
- * 自动机只认字面，所以这些**形状固定**的旧痕迹要逐条列出来。
- * 带数字的（[第 35 行起重复 8 次]）认不住——那正是这次把新文案改成不带数字的原因。
+ * 现在只有一份：sentences.ts 的 MARK_TEXTS。
  */
-const LEGACY_TRACES = [
-  "[外部附注：已删重复。]",
-  "[外部附注：已删重复 4 处。]",
-  "[已折叠：重复]",
-  "[已改：语言]",
-];
+import { MARK_TEXTS } from "./sentences.ts";
 
 function exciseInjected(text: string, skip: readonly string[] | undefined): string {
   // skip 可能没给：judgeCfg() 一定有，但调用方直接传部分 cfg 时会是 undefined。
   // 崩在这儿比判错更糟——判据抛异常，上层只能记 judgeErrors，看不出是哪一条判据坏的。
-  const pats = [...(Array.isArray(skip) ? skip : []), ...LEGACY_TRACES]
+  const pats = [...(Array.isArray(skip) ? skip : []), ...MARK_TEXTS]
     .filter((x) => typeof x === "string" && x.length >= 4);
   if (!pats.length) return text;
   const ac = buildAC(pats);

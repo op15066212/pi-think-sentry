@@ -17,11 +17,15 @@ export default {
   name: "prefix",
   defaults: defaultsOf("prefix"),
   configure(raw: any) {
+    // 兜底值一律从 defaults.ts 取，不在这里再写一份字面量。
+    // 2026-11-24：两处各写一遍时，改了 defaults 忘了这里，
+    // 「坏 JSON 回默认」拿到的就不是默认值，测试当场红。
+    const d = defaultsOf("prefix");
     const r = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
-    const on = asBool(false, r.on, "prefix.on");
+    const on = asBool(d.on === true, r.on, "prefix.on");
     // min 是比例：最集中的行首前缀占到多少行就算退化。
     // 0.5 是实测分界——截图那段 100%，正常写作里最集中的前缀占 20%。
-    const min = threshold(r.min, 0.5, "prefix.min");
+    const min = threshold(r.min, d.min, "prefix.min");
     if (min > 1) throw new Error("prefix.min 是比例，不能大于 1，实际 " + String(r.min));
     return { on, min };
   },

@@ -33,7 +33,11 @@
     "minLen": 12
   },
   "prefix": {
-    "on": false,
+    "on": true,
     "min": 0.5
+  },
+  "unified": {
+    "on": false,
+    "min": 0.6
   }
 }
