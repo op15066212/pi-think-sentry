@@ -287,7 +287,16 @@ if (SELFTEST) {
   // 2026-11-25 实测：sentry 差 state.json，guard 差 state.json 与 pi-escape-guard.json。
   // 期望从 git 取（HEAD 清单），实现从 filesOf 取。差集里的每一项都必须被点名。
   const gitSet = new Set(gitFiles);
-  const unpointed = [...collected].filter((rel) => !gitSet.has(rel) && !isExcluded(rel) && !VOLATILE.has(rel.split("/").pop()));
+  const cand = [...collected].filter((rel) => !gitSet.has(rel) && !isExcluded(rel) && !VOLATILE.has(rel.split("/").pop()));
+  // 被 .gitignore 忽略的文件不是「未提交的新文件」——它本来就不该进 git。
+  // 用 git check-ignore 判，不自己解析 .gitignore（那是第二份实现，迟早不同步）。
+  // 一次 stdin 批量，不逐个 spawn。
+  let unpointed = cand;
+  if (cand.length) {
+    const ci = spawnSync("git", ["-C", REPO, "check-ignore", "--stdin"], { input: cand.join(String.fromCharCode(10)), encoding: "utf8" });
+    const ign = new Set((ci.stdout || "").split(String.fromCharCode(10)).filter(Boolean));
+    unpointed = cand.filter((r) => !ign.has(r));
+  }
 
   // ===== 判据 E：VOLATILE 里有没有指向不存在文件的死条目 =====
   // 与 C 判据同一形状的另一侧：EXCLUDE 管「不签」，VOLATILE 管「签但字节不入总指纹」。
