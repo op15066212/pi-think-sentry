@@ -579,6 +579,37 @@ node --experimental-strip-types bin/bench-judges.mjs
 改完后 `partitionLines` 占 18%，其余 78% 在 `dupOn` 里（整行计数）。
 `dupIn` 是 `Map` 计数，已经是 O(n)——再快需要换数据结构，收益不抵风险。**到此为止。**
 
+## rc=1 不许推：机器挡，不靠自觉
+
+**为什么有**：我提交 `4fb1570` 之前跑了 `npm run verify`，**rc=1，没看就 commit 又 push**。
+
+事后查明红的原因是 D 判据（新文件还没进 git），提交后自愈。**原因无害，过程有害。**
+
+我当时的应对是把顺序改成 `add → commit → verify`。**那是绕过，不是解法**：
+顺序换了，要守的那条还是「rc=1 不许推」，还是靠我自觉。而且换顺序有新代价——
+verify 红了时已经提交，得 amend 或 reset 才不留脏历史。
+
+**装到机器上：**
+
+```bash
+node bin/install-hooks.mjs
+```
+
+装出来的 `.git/hooks/pre-push` 与顺序无关：`npm run verify` 的 rc 非 0 就 `exit 1`，推不出去。
+
+hook 本身不进 git（`.git/` 不受版本控制），所以**装的那一步写成了这个脚本**——
+可复制的是安装动作，装出来的东西是本地的。
+
+**判据**：造一条红的判据，`git push` 必须被拒并打印红在哪一行。
+
+```bash
+printf 'process.exit(1)\n' > scripts/check-zzz-canary.mjs
+git push        # 期望被拒：pre-push 拒收：npm run verify rc=1
+rm scripts/check-zzz-canary.mjs
+```
+
+日志留在 `.git/pre-push-verify.log`，被拒时会提示看它。
+
 ## 判据
 
 ```bash
