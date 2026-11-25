@@ -96,7 +96,9 @@ const EXCLUDE = new Map([
   ["SIGN-OFF.md", "签字记录本身。进了被签面，加一行就改指纹，就得重签，循环没有尽头。"],
   ["SIGN-OFF-DTT.md", "同上，元理论那套签字记录。"],
   ["package-lock.json", "npm install 会动它，与代码改动无关。"],
-  ["settings.json", "用户改一个开关它就变。指纹跟着变就分不清「代码改了」与「有人动了配置」。它单独列在输出里给人看。"],
+  // settings.json 2026-11-25 从这里移走：它该被签（改一个开关就是改行为），
+  // 只是它的字节不能算进那个应当稳定的数——那是 VOLATILE 的语义，不是 EXCLUDE 的。
+  // 两边都写是矛盾：EXCLUDE 让它永不进 filesOf，VOLATILE 那一半就成了死条目。
   // 目录以斜杠结尾。下面两个不进被签面，理由写在这里。
   ["state.json", "运行时状态（计数与水位）。插件跑一轮写一次，不是人写的，不该进被签面。"],
   [".doc-bridge/", "doc-bridge 工具自动生成的知识索引。它随工具重扫而变，不是人写的。"],
@@ -116,7 +118,11 @@ function isExcluded(rel) {
 // 仍在被签面里但不参与总指纹的（只印 md5 给人看）。
 // 与 EXCLUDE 的区别：EXCLUDE 是「不签」；VOLATILE 是「签，但它会随运行变，
 // 所以它的字节不能算进那个应当稳定的数」。
-const VOLATILE = new Set(["settings.json", "SIGN-OFF.md", "package-lock.json"]);
+// 只有 settings.json：它被 git 追踪、影响行为、用户会改，所以要签；
+// 但它每改一个开关就变，字节不能算进总指纹，所以单列。
+// SIGN-OFF.md 与 package-lock.json 是 EXCLUDE（不签），不该在这里——
+// 上一版三条全在这里，而三条全在 EXCLUDE，等于三条全死。E 判据抓到。
+const VOLATILE = new Set(["settings.json"]);
 
 function walk(dir, out = []) {
   if (!fs.existsSync(dir)) return out;
@@ -285,7 +291,13 @@ if (SELFTEST) {
 
   // ===== 判据 E：VOLATILE 里有没有指向不存在文件的死条目 =====
   // 与 C 判据同一形状的另一侧：EXCLUDE 管「不签」，VOLATILE 管「签但字节不入总指纹」。
-  const knownNames = new Set([...collected, ...gitFiles].map((r) => r.split("/").pop()));
+  // 2026-11-25 第二版（pi 插件2 实测指出第一版判错了对象）：
+  // 第一版写成 [...collected, ...gitFiles]，于是“在 git 里存在”也算活。
+  // 但 VOLATILE 的语义是“签，只是字节不入总指纹”——它必须真的在 filesOf 的输出里。
+  // 一个文件同时写进 EXCLUDE 与 VOLATILE 是**矛盾**：EXCLUDE 让它永远不进 filesOf，
+  // VOLATILE 那一半就是死条目。第一版判不出来（gitFiles 把它救活了）。
+  // 现在只认 collected，两边都写必然红。
+  const knownNames = new Set([...collected].map((r) => r.split("/").pop()));
   const deadVol = [...VOLATILE].filter((n) => !knownNames.has(n));
 
   const cases = [
