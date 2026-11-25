@@ -100,8 +100,9 @@ export function planSignatureCleanup(entries: readonly Entry[], keepTurns: numbe
  * 于是第一次调用等价于全量（from = 0），之后只处理 [上次边界, 本次边界)。
  * 不需要「是否已初始化」的标记 —— 0 就是未初始化，两者是同一件事。
  *
- * 反例（这条挡的）：把 from 直接写成 state.boundary，keepTurns 被调小时边界左移，
- * 左移出来的那一段会被永久跳过，表现为「改了配置，最前面几条签名一直清不掉」。
+ * 反例（这条挡的）：第一轮就把水位写成「当前边界」而不是 0 —— 开头那批从未清过的
+ * 条目永远不会被处理，表现为「装好插件后最前面几条签名一直清不掉」。
+ * 判据：test/signatureIncremental.test.ts 的「第一次调用等价全量」。
  */
 export type CleanupState = { boundary: number };
 
@@ -122,7 +123,10 @@ export function planSignatureCleanupIncremental(
       if (seen > k) { boundary = i + 1; break; }
     }
   }
-  const from = Math.min(state.boundary, boundary);
+  // 水位只会右移，除非 keepTurns 被调大 —— 那时新边界比水位更靠左，
+  // from >= boundary 直接返回，本来就是对的（过期区缩小，没有新东西要清）。
+  // 所以不写 min(state.boundary, boundary)：那是等价变异，测不出差别，留着只是多一处可写错的地方。
+  const from = state.boundary;
   if (from >= boundary) return { edits: [], state: { boundary } };
   // 已清判定要看该 target 的最后一条 edit。edit 总写在 target 之后、清完就贴着边界，
   // 所以只在尾部窗口里找：窗口外找不到就当未清（多写一条，不会漏清）。

@@ -536,7 +536,6 @@ export default async function installGuard(pi: any) {
         // getEntries() 是唯一能拿到历史 entry 的接口；context_edit 的 targetId
         // 能指向任意 entry，所以清历史不需要改 jsonl（B1 边界不变）。
         const all: any[] = (ctx as any)?.sessionManager?.getEntries?.() ?? [];
-        const all: any[] = (ctx as any)?.sessionManager?.getEntries?.() ?? [];
         // 增量版（2026-11-25）：幂等修好后第二轮起产出恒为 0，全量扫 26000 条要 4.4ms，
         // 每轮都白扫。水位停在「上一次的过期区右端」，跨会话归零（见 sigState）。
         // 与全量版等价，判据在 test/signatureIncremental.test.ts。

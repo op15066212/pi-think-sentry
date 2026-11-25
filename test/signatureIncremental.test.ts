@@ -53,15 +53,19 @@ test("稳态：边界不动时第二轮产出 0（幂等的另一半）", () => 
   assert.equal(r2.edits.length, 0);
 });
 
-test("反例：keepTurns 调小后边界左移，左移出来的那段必须补清", () => {
+// 过期区扩大（keepTurns 调小 = 保留更少 = 边界右移）时，新扩出来的那段必须补清。
+// 反向（keepTurns 调大 = 边界左移）不需要单独立测：那时 from >= boundary 直接返回，
+// 我试过三种把它写错的方式，全都不改变行为——写不出会红的变异，就不留这条测试。
+test("反例：过期区扩大时，新扩出来的那段必须补清", () => {
   const entries = session(80);
-  // 先在 keepTurns=60 下跑一遍：只清最前面 20 个
+  // 先在 keepTurns=60 下跑一遍：只清最前面 20 个（a0..a19）
   const r1 = planSignatureCleanupIncremental(entries, 60, { boundary: 0 });
   assert.equal(r1.edits.length, 20);
   const grown = entries.concat(r1.edits.map((ed, i) => ({ id: "e" + i, type: "context_edit", targetId: ed.targetId, replacement: ed.replacement })));
-  // 用户把 keepTurns 调到 30：过期区从 20 条扩到 50 条，新增的 a20..a49 都未清
+  // keepTurns 60→30：保留 30 轮，过期区从 20 条扩到 50 条（a0..a49），边界右移。
+  // 新增的 a20..a49 都未清，必须补清；已清的 a0..a19 不许重复清。
   const r2 = planSignatureCleanupIncremental(grown, 30, r1.state);
-  assert.equal(r2.edits.length, 30, "左移扩出来的 a20..a49 必须补清，已清的 a0..a19 不许重复清");
+  assert.equal(r2.edits.length, 30, "新扩出来的 a20..a49 必须补清，a0..a19 不许重复");
 });
 
 test("真实会话上等价：前 400 条逐条增长，增量累计 == 一次全量", () => {
