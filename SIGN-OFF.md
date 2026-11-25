@@ -960,3 +960,72 @@ MODULES 里有 7 个：intercept dup lang signature strip inject bindingMod
    本次靠删掉第二处（不写数量、写指向）规避，不是自动发现。
 
 | 修改方 | 9d80afea | **已签**：`bac3dd2706ff607251c41a09c756fdd6`、npm run verify rc=0（246/246 + gate 10 步 5 selftest）；check-rules-coverage 加 MODULES 与 features 双向对拍，selftest 1→4 条、取前取后 0 行 | 2026-11-25T15:31:32Z |
+
+## 重签（2026-11-25T15:36Z，模块与目录双向对拍加上之后）
+
+### 身份（`node bin/fingerprint.mjs --head` 现取，采样 2026-11-25T15:33:00Z）
+
+| 项 | 值 |
+| --- | --- |
+| 总指纹 | `bac3dd2706ff607251c41a09c756fdd6` |
+| 口径 | HEAD `b5502f4` |
+| 文件数 / 总字节 | 108 / 591,434（上一版 108 / 588,901） |
+| 取前取后 git status | 0 行 / 0 行 |
+
+上一版 `819933a5` 作废。
+
+### 判据（整条命令的 rc）
+
+```
+npm run verify → rc=0   tests 246，gate 5 条判据 10 步（5 步 selftest）0 失败
+check-rules-coverage → 7 条规则，缺口 0 个；其 --selftest 四个方向全对
+```
+
+### 复核方自己跑的三件
+
+一、四条 selftest 逐条看
+
+```
+PASS  改坏一条 module 后应红
+PASS  MODULES 多一项、盘上没有 → 应红
+PASS  盘上多一个文件、MODULES 没登记 → 应红
+PASS  真实盘面对拍必须干净 → 绿
+```
+
+二、造一个未登记文件（`src/features/zzz-reviewer-probe.ts`）看哪条翻
+
+```
+selftest rc=1，翻的是第 ④ 条「真实盘面对拍必须干净」
+前三条仍 PASS —— 它们是自造坏样本，不读真实盘，所以不会因盘面污染而翻
+删掉后 rc=0，status 0 行
+```
+
+这一条正是修改方所说「第 ④ 条是前三条的对照」的用处：真实盘面被污染时，它先红。
+
+三、SETTINGS.md 与 README 里不再写死规则条数
+
+```
+grep -nE "6 条规则|[0-9]+ 条规则" SETTINGS.md README.md → 零命中
+```
+
+### 关于「这一类第四处」的说法
+
+修改方统计：guard 钩子、sentry config.ts、sentry index.ts、SETTINGS.md 四处，
+每处都是查别的东西时顺带撞见的，没有一处被检查抓住。
+
+复核方核过其中三处（config.ts 与 index.ts 的改后文本、SETTINGS.md 的零命中），第四处（guard 钩子）在 guard 那份里记过。
+所以「四处」这个数是修改方数的，复核方只能确认「至少三处已改且不再写死」。
+
+### 签字
+
+| 角色 | 会话 | 状态 | 时刻 |
+| --- | --- | --- | --- |
+| 复核方 | pi 插件2 `f15be404` | | 复核方 | f15be404 | **已签**：`bac3dd2706ff607251c41a09c756fdd6`、npm run verify rc=0；246/246；gate 5 条判据 10 步；MODULES↔features 双向对拍四条 selftest PASS，造未登记文件后第④条红、复原 rc=0、取前取后 0 行 | 2026-11-25T15:34:32Z | | 2026-11-25T15:36Z |
+| 修改方 | pi 插件 `9d80afea` | **已签**：`bac3dd27`、verify rc=0、local = remote | 2026-11-25T15:32Z |
+
+### 未验证项
+
+1. `signoff-commits.mjs --strict` 仍报历史行不完整，按定论不回填、不进 gate。
+2. 拦截门槛不判「散着写的转义」，已一致记为已知缺口。
+3. 注释与文档里写死数量这一类，仍无机器判据（四处全靠顺带撞见）。本次只删第二处，不改判。
+4. pi-escape-guard 未改动，仍为复核方已签的 `861291d7`（HEAD `7d8ab5d`）。
