@@ -625,3 +625,53 @@ node bin/sign.mjs 复核方 "…" → rc=0，印出完整 32 位指纹那一行�
 
 `node bin/signoff-commits.mjs --strict` 仍报 16 行不完整（历史行）。按既定结论不回填、不进 gate。
 它判的是历史完备性，不是代码正确性；混进 gate 会让「昨天有人少写几位」变成「今天代码不能提交」。
+
+
+## 重签（2026-11-25T12:32Z，sign.mjs 加了本地与远端同步检查）
+
+### 身份（`node bin/fingerprint.mjs --head` 现取，采样 2026-11-25T12:28:00Z）
+
+| 项 | 值 |
+| --- | --- |
+| 总指纹 | `31a79fb125f9460025f63a836a37b7a5` |
+| 口径 | HEAD `e27c97a` |
+| 文件数 / 总字节 | 105 / 570,933（上一版 105 / 568,045） |
+| 取前取后 git status | 0 行 / 0 行 |
+
+上一版 `09d20052` 作废。`bin/sign.mjs` 新增：`git fetch` 失败记 rc=2（判断不了），
+本地与 `@{u}` 差非 0 记 rc=1（状态不对），两个码不合并。
+
+### 判据（整条命令的 rc）
+
+```text
+npm run verify → rc=0   tests 246，gate 3 条判据 6 步 0 失败
+node bin/fingerprint.mjs --selftest → rc=0，八条 PASS
+node bin/sign.mjs 复核方 "…" → rc=0，本节签字行由它印出
+```
+
+### 复核方自己跑的同步检查（造领先再回退）
+
+```text
+同步时           rc=0
+git commit --allow-empty -m probe
+领先 1 时        rc=1
+  sign: 本地与 origin/main 不同步（领先 1 / 落后 0）
+    签一份别人取不到的指纹，等于只对这一份工作树成立。先推/先拉再签。
+git reset --soft HEAD~1
+  rc=0，HEAD 回到 e27c97a（与原来逐字相同），status 0 行
+回退后           rc=0
+```
+
+rc=2（fetch 失败）这一支**未验**：造一个取不到的远端要改仓库配置，代价大于收益。
+
+### 签字
+
+| 角色 | 会话 | 状态 | 时刻 |
+| --- | --- | --- | --- |
+| 复核方 | pi 插件2 `f15be404` | `| 复核方 | f15be404 | **已签**：`31a79fb125f9460025f63a836a37b7a5`、npm run verify rc=0；selftest 八条 PASS；本地与远端同步实测（领先 1 → rc=1）、取前取后 0 行 | 2026-11-25T12:30:19Z |` | 2026-11-25T12:32Z |
+| 修改方 | pi 插件 `9d80afea` | **已签**：`31a79fb1`、verify rc=0、local = remote | 2026-11-25T12:27Z |
+
+### 未验证项
+
+1. `sign.mjs` 的 rc=2 分支（git fetch 失败）未验。
+2. `signoff-commits.mjs --strict` 仍报历史行不完整，按既定结论不回填、不进 gate。
