@@ -110,6 +110,6 @@ npm test                              # rc=0
 
 ```bash
 npm test                                                              # rc=0
-node --experimental-strip-types scripts/check-rules-coverage.mjs       # 6 条规则，0 缺口
+node --experimental-strip-types scripts/check-rules-coverage.mjs       # 全部规则，缺口 0 个（条数看输出，不写死）
 node verify-dtt.mjs                                                    # 元理论节齐、四件齐
 ```

@@ -26,6 +26,23 @@ function missingModules(rules, srcDir) {
   return out;
 }
 
+/** MODULES 与 features/ 目录对拍，两个方向（2026-11-25，pi 插件2 指出）。
+ *
+ * 删掉注释里写死的数量之后，「清单见 MODULES」这句本身可能只指向一份残清单：
+ * MODULES 少一项，目录里就有个文件没人认领；多一项，就指向不存在的文件。
+ * 两个方向都要查，只查一个方向等于只挡一半。
+ *
+ * 期望从盘上取（readdir），实现从代码取（MODULES）。两边不同源，不同步就红。
+ * 反例：MODULES 删掉 binding -> 「目录里有、清单里没有」；MODULES 加一项 fake -> 「清单里有、盘上没有」。
+ * 与 missingModules 同一个形状：正常模式与 selftest 共用这一份，不各写一遍。 */
+export function diffModulesAndFeatures(modNames, features) {
+  const out = [];
+  const names = new Set(modNames);
+  const files = new Set(features.map((f) => f.replace(/\.ts$/, "")));
+  for (const n of names) if (!files.has(n)) out.push("MODULES 里有 " + n + "，但 features/" + n + ".ts 不存在");
+  for (const f of files) if (!names.has(f)) out.push("features/" + f + ".ts 存在，但 MODULES 里没有它");
+  return out;
+}
 export async function check(dir = here) {
   const src = path.join(dir, "src");
   if (!fs.existsSync(src)) { console.log("缺 " + src); process.exit(2); }
@@ -39,6 +56,12 @@ export async function check(dir = here) {
 
   const featuresDir = path.join(src, "features");
   const features = fs.existsSync(featuresDir) ? fs.readdirSync(featuresDir).filter((f) => f.endsWith(".ts")) : [];
+
+  // MODULES 与 features/ 对拍（2026-11-25，pi 插件2 指出）：
+  // 删掉注释里写死的数量之后，「清单见 MODULES」这句本身可能只指向一份残清单。
+  // 两个方向都查——MODULES 少一项则目录里有人没人认领，多一项则指向不存在的文件。
+  const { MODULES } = await import(pathToFileURL(path.join(src, "config.ts")).href);
+  for (const p of diffModulesAndFeatures(MODULES.map((m) => m.name), features)) problems.push(p);
   // 2026-11-24：module 允许是数组。一条判据常常由两件组成——配置单元（features/xxx.ts）
   // 与实现（algo/xxx.ts 或 features/yyy.ts）。只允许一个字符串时，
   // 实现那一侧就无法被点名，于是「文件存在但规则表里没有它的条目」永远抓不到。
@@ -51,17 +74,40 @@ export async function check(dir = here) {
 }
 
 if (process.argv.includes("--selftest")) {
-  // 反例：把某条 RULES 的 module 改成一个不存在的文件，判据必须红。
   const { RULES } = await import(pathToFileURL(path.join(here, "src", "meta.ts")).href);
-  const bad = RULES.map((r, i) => (i === 0 ? { ...r, module: "features/不存在的模块.ts" } : r));
-  const problems = [];
-  // 与正常模式同源：调 missingModules，不在这里重写一遍判断。
-  // 2026-11-25 这里原先是 path.join(here, "src", r.module)——module 改成数组之后必崩。
-  for (const p of missingModules(bad, path.join(here, "src"))) problems.push(p);
-  const ok = problems.length > 0;
-  console.log((ok ? "PASS" : "FAIL") + "  改坏一条 module 后应红：实得 " + ok);
-  console.log(ok ? "selftest: 坏样本红了" : "selftest: 坏样本没红");
-  process.exit(ok ? 0 : 1);
+  const { MODULES } = await import(pathToFileURL(path.join(here, "src", "config.ts")).href);
+  const srcDir = path.join(here, "src");
+  const realFeatures = fs.readdirSync(path.join(srcDir, "features")).filter((f) => f.endsWith(".ts"));
+  const realNames = MODULES.map((m) => m.name);
+
+  const cases = [];
+
+  // ① 规则点名的 module 文件不存在（原有反例）
+  const badRules = RULES.map((r, k) => (k === 0 ? { ...r, module: "features/不存在的模块.ts" } : r));
+  cases.push(["改坏一条 module 后应红", missingModules(badRules, srcDir).length > 0]);
+
+  // ② 上游到下游：清单里有一项，盘上没有对应文件
+  cases.push([
+    "MODULES 多一项、盘上没有 → 应红",
+    diffModulesAndFeatures([...realNames, "fakeNotOnDisk"], realFeatures).length > 0,
+  ]);
+
+  // ③ 下游到上游：盘上有一个文件，清单里没登记
+  cases.push([
+    "盘上多一个文件、MODULES 没登记 → 应红",
+    diffModulesAndFeatures(realNames, [...realFeatures, "fakeOnDisk.ts"]).length > 0,
+  ]);
+
+  // ④ 对照：真实盘面对拍必须干净，否则这两个方向在报假警
+  cases.push(["真实盘面对拍必须干净 → 绿", diffModulesAndFeatures(realNames, realFeatures).length === 0]);
+
+  let n = 0;
+  for (const [name, ok] of cases) {
+    if (!ok) n++;
+    console.log((ok ? "PASS  " : "FAIL  ") + name);
+  }
+  console.log(n === 0 ? "selftest: 四个方向全对" : "selftest: " + n + " 条不符");
+  process.exit(n === 0 ? 0 : 1);
 }
 
 // isMain 保护（2026-11-25）：本文件导出 check()，设计上就是给别人复用的。
