@@ -363,11 +363,57 @@ run 的两个数必须一起读：**判红率**（分母是全部段）@40 是 6
 
 ## 环节
 
-    message_update   每帧判一次，记下最后一帧的判决
-    tool_call        判决是红的就拦（没有次数上限，没有冷却）
-    turn_end         按判据给的行号删重复行；按配置在思考末尾追加一段文案
+    before_agent_start  每轮重开：清判决、清帧证据、签名水位归零
+    message_update      每帧判一次（一轮内粘性：红过一次整轮算红）
+    tool_call           判决是红的就拦（没有次数上限，没有冷却）
+    turn_end            按判据给的行号删重复行；清历史思考的签名；按配置追加文案
 
 删重复行用的是判据已经算好的行号（ev.dups 里每组第三项），不按内容再找一遍——那是第二份判据。
+
+## 签名清理：两次都是拿真事故换来的
+
+**做什么**：历史 assistant 消息里带 `thinkingSignature`（一段加密串，几百字节），每轮把它清掉。
+清法不是改原消息，是往会话里追加一条 `context_edit`。
+
+**第一次事故：不幂等，会话涨到 377MB。**
+2026-11-24 有个会话 133,092 行 / 377.6MB，其中 131,698 条是 `context_edit`——
+478 个目标，平均每个被重写 275 次。pi 构建 prompt 与压缩时报
+`Maximum call stack size exceeded`，1ms 就失败。
+
+根因：`context_edit` **不改原始 entry**。pi 自带文档里写明（session-format 那一节）
+"the target entry and its metadata remain unchanged in raw history"。
+所以「这条消息还有没有签名」对已清过的目标**永远为真**，每轮 `turn_end`
+又写一条内容一模一样的编辑。增长是 `O(轮数 × 过期条目数)`。
+
+修法：不看原始 entry，看该目标**最后一条** `context_edit` 的 `replacement`，
+里面没签名就跳过。`replacement = null`（整条从上下文里省略）不算已清。
+
+**第二次事故：不幂等了，但每轮白扫一遍。**
+幂等修好后第二轮起产出恒为 0，代码却仍然把整个历史重扫。26,000 条要 1.8–2.4ms。
+
+修法：水位停在「上一次过期区的右端」，只扫 `[水位, 本次边界)`。
+首轮水位是 0，就等于全量——不需要「是否初始化」的标记，0 就是未初始化。
+
+| 场景（2026-11-25T09:05Z 实测，连跑三次取区间） | 耗时 |
+|---|---|
+| 26,000 条首轮（等价全量） | 1.5–1.9ms |
+| 稳态（水位不动，无新东西要清） | 0.0003–0.0005ms |
+| 每轮 +1 条 | 0.001–0.003ms |
+
+**判据**：
+
+```bash
+node --experimental-strip-types --test test/signature.test.ts             # 15 条
+node --experimental-strip-types --test test/signatureIncremental.test.ts  # 5 条
+node --experimental-strip-types --test test/idempotence.test.ts           # 第二遍必须不再改
+node bin/bench-signature.mjs                                              # 上面那张表
+```
+
+**反例**（喂进去就为假）：
+
+- 删掉 `alreadyClean` 那行 → 幂等测试红，会话又开始涨
+- 第一轮就把水位写成「当前边界」→「第一次调用等价全量」红，最前面几条签名永远清不掉
+- 水位写 `Math.min(state.boundary, boundary)` → **不红**。等价变异，留着只多一处能写错的地方，所以删了
 
 ## 配置
 
