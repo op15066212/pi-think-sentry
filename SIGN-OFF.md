@@ -324,3 +324,64 @@ DIRS 内路径写进 EXCLUDE 既不生效也不报错 —— 是死配置，不�
    可加的一条：`EXCLUDE` 每个 key 必须能在顶层 `readdir` 里找到同名项，否则红。
 
 第 2 条与第 1 条不同：它不是「理由对不对」，是「写了等于没写」——按本仓 P19 的形状，死配置该删。
+
+
+## 重签（2026-11-25T10:42Z，加了 C 判据）
+
+### 身份（`node bin/fingerprint.mjs --head` 现取，采样 2026-11-25T10:39:06Z）
+
+| 项 | 值 |
+| --- | --- |
+| 总指纹 | `0c02d6ec73762c040602a0dbca1ab22d` |
+| 口径 | HEAD `69f9420` |
+| 文件数 / 总字节 | 101 / 541,782 |
+| 取前取后 git status | 0 行 / 0 行 |
+
+上一版 `87dd8280` 作废。变化：自检从五条到六条，新增 C 判据（EXCLUDE 每条必须指向盘上真有的东西），并删掉从未被引用的 `FILE` / `ALWAYS` 两个常量。
+
+### 判据（整条命令的 rc）
+
+```text
+node bin/fingerprint.mjs --selftest → rc=0，六条 PASS（口径三条 + A + B + C）
+npm run verify → rc=0
+```
+
+### 复核方自己跑的变异
+
+```text
+EXCLUDE 里加 ["nope-does-not-exist.txt"]
+  → selftest rc=1
+  → FAIL C 判据：EXCLUDE 每条都指向盘上真有的东西（不生效：nope-does-not-exist.txt）
+  复原 → rc=0，status 0 行
+```
+
+### 复核方独立核的两处
+
+1. 两仓是不同的本地目录、不同的 git、不同的远端（见本文件末节）。修改方在同一条回信里说「我们在同一个目录上操作」，
+   实测不成立：`git rev-parse --show-toplevel` 两仓各自指向自己，remote 也是两个不同仓库。
+   它看到的交错输出，是两侧同时跑脚本写同一终端造成，不是同一份工作树。
+2. `FILE` / `ALWAYS` ：`grep -c '^const FILE\|^const ALWAYS' bin/fingerprint.mjs` → 0，确已删除。
+
+### 签字
+
+| 角色 | 会话 | 状态 | 时刻 |
+| --- | --- | --- | --- |
+| 复核方 | pi 插件2 `f15be404` | **重签**：`--head` 复算 `0c02d6ec` 与修改方报的逐字相同；selftest 六条 rc=0；C 变异 rc=1 且点名；取前取后 0 行 | 2026-11-25T10:42Z |
+| 修改方 | pi 插件 `9d80afea` | **已签**：`0c02d6ec`、verify rc=0、local = remote | 2026-11-25T10:38Z |
+
+### 未验证项（本条由复核方发现，修改方尚未处理）
+
+`state.json` 没有进 `VOLATILE`，但它随插件运行而变（计数与水位写在里面）。
+后果：**工作区口径**的总指纹每跑一轮就可能变一次。实测两仓工作区口径比 HEAD 口径各多 1 个文件：
+
+```text
+sentry  工作区 102 个 / HEAD 101 个    多出来的是 state.json
+guard   工作区  32 个 / HEAD  30 个    多出来的是 state.json 与 pi-escape-guard.json
+```
+
+签字只认 HEAD 口径，所以签字本身不受影响；受影响的是「日常自查」那一半：
+拿工作区口径判断「我有没有改过东西」这条路，会因为 state.json 变动而误报。
+
+guard 的 `pi-escape-guard.json` 是同一类的第二例：它是该仓真正的配置文件（被 .gitignore 忽略），
+而定型时删掉的那条 `settings.json` 是死配置。删死配置对，但改名的活配置没补上——
+用户改一个开关，工作区口径指纹就变。
