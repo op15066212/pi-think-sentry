@@ -6,14 +6,13 @@ import lang from "./features/lang.ts";
 // prefix 的判据在 algo/prefix.ts，这里只需要一个配置单元。
 import signature from "./features/signature.ts";
 import strip from "./features/strip.ts";
-import inject from "./features/inject.ts";
 import bindingMod from "./features/binding.ts";
 import { clearRejects } from "./values.ts";
 
 // 功能模块，一个功能一个单例。模块清单见下面 MODULES，顺序就是配置文件的顺序。
 // **不写数量**：原来写「五个」，实际已经是七个。数量会变，指向不会变。
 // 加功能只需在这里多一行，读写与兜底不用动。
-export const MODULES = [intercept, dup, lang, signature, strip, inject, bindingMod];
+export const MODULES = [intercept, dup, lang, signature, strip, bindingMod];
 
 const pluginDir = path.join(import.meta.dirname, "..");
 export const configFile = () => process.env.CURB_CONFIG_FILE || path.join(pluginDir, "settings.json");
@@ -25,25 +24,13 @@ export const defaults = () => {
   return out;
 };
 
-// 旧形状迁移：selfCheck / selfCheckText 曾经平铺在顶层。读的时候挪进 inject，
-// 写回去的时候只写新形状，旧键自然消失。
-const migrate = (raw: any) => {
-  const out = { ...raw };
-  if (out.inject === undefined && (out.selfCheck !== undefined || out.selfCheckText !== undefined)) {
-    out.inject = {
-      on: out.selfCheck === false ? false : true,
-      text: typeof out.selfCheckText === "string" ? out.selfCheckText : "",
-    };
-  }
-  delete out.selfCheck;
-  delete out.selfCheckText;
-  return out;
-};
+// 2026-11-25：inject 模块连同它的旧形状迁移（selfCheck / selfCheckText → inject）一起删除。
+// 没有注入，就没有可迁移的目标；那两个旧键留着不读也不写，等于不再存在。
 
 // 读文件的结果只有两种，没有第三种。
 //
 // 2026-11-21 之前它返回 `{}`，于是「文件不存在」「文件不是合法 JSON」「文件真是空的」
-// 三态合一。三个真缺陷都从那个合一里长出来：删行门槛比判据松、注入不幂等、配置被写没。
+// 三态合一。三个真缺陷都从那个合一里长出来：删行门槛比判据松、处置不幂等、配置被写没。
 // 上一个修法是给 writeConfig 加一个 if——那是在类外打分支，只挡住一个调用方。
 // 换成这里的两态之后，任何新调用方都拿不到「假装成功」的对象：要么解包 value，
 // 要么自己写清楚读不到时怎么办。类型上就不存在「读失败返回一个值」这件事。
@@ -59,7 +46,7 @@ const readRaw = (): Read => {
     const v = JSON.parse(text);
     // 合法但不是对象（null / 数组 / 字符串）也算坏：写回去一样会丢东西。
     if (!v || typeof v !== "object" || Array.isArray(v)) return { ok: false, why: "broken" };
-    return { ok: true, raw: migrate(v) };
+    return { ok: true, raw: v };
   } catch {
     return { ok: false, why: "broken" };
   }

@@ -26,7 +26,7 @@
 // 不是「检查了才不出现」，是「写不出来」。这正是 fold 独立成一个 kind 的理由：
 // 它的动作（折叠一段，保留该行其余内容）与 strip（整行删除）不同，同一个 kind 装不下。
 //
-// 穷尽性：每个消费点（strip.clean / inject 取模板 / 统计）都用 switch 覆盖 Kind，
+// 穷尽性：每个消费点（strip.clean / 统计）都用 switch 覆盖 Kind，
 // default 走 assertNever。加一个 kind 而漏改一处 → tsc 报错（`never` 不可赋值）。
 // 这是「删掉一条会红」的类型版：不是跑测试才发现，是编译就红。
 //
@@ -55,14 +55,6 @@ const RULE_OF: Record<Kind, readonly Rule[]> = {
   // run 判红时复用 fold：动作一样是折叠重复段，ev 形状与 inline 相同。
   fold: ["inline", "run", "shape"],
   retract: ["lang"],
-};
-
-/** 每种 kind 用哪份注入模板。与 KINDS 是同一张表的两列：加 kind 时缺一列 → tsc 报错。 */
-export const TEMPLATE_OF: Record<Kind, "dup" | "lang" | "clean" | "inline"> = {
-  none: "clean",
-  strip: "dup",
-  fold: "inline",
-  retract: "lang",
 };
 
 /** 穷尽性守卫：switch 走到这里说明漏了一个构造子。类型上不可达，运行时报错兜底。 */
@@ -144,14 +136,3 @@ export const Verdict = {
     return { kind, rule, ev: v.ev, ...(v.forced === true ? { forced: true as const } : {}) };
   },
 };
-
-/** 供消费点使用：给定判决，它的模板键。switch 形式让 tsc 能查穷尽性。 */
-export function templateKeyOf(v: VerdictV): "dup" | "lang" | "clean" | "inline" {
-  switch (v.kind) {
-    case "none": return TEMPLATE_OF.none;
-    case "strip": return TEMPLATE_OF.strip;
-    case "fold": return TEMPLATE_OF.fold;
-    case "retract": return TEMPLATE_OF.retract;
-    default: return assertNever(v.kind as never);
-  }
-}

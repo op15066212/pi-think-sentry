@@ -12,7 +12,6 @@
   "lang":      { "on": true, "dir": "zh" },
   "signature": { "on": true, "keepTurns": 30 },
   "strip":     { "on": true, "min": 4 },
-  "inject":    { "on": true, "texts": { "dup": "", "lang": "", "clean": "", "inline": "" } },
   "binding":   { "allowGateway": false }
 }
 ```
@@ -20,7 +19,7 @@
 这份全文取自 `src/defaults.ts` 的 `DEFAULTS`，两者不一致时以代码为准。
 命令：`/think-sentry` 看全部状态；`/think-sentry dup min 5` 改一个值。写不认识的键会被拒绝并说明，不静默兜底。
 
-## 七个模块
+## 六个模块
 
 ### intercept · 拦截
 
@@ -70,18 +69,6 @@
 `strip` 自己不判，只用判据已经算好的行号，从后往前删，位移不会串。
 `strip.min` 大于 `dup.min` 时会出现「判红了但删不了」——看着在管，一次都没处置。
 这种跨字段的事单个键查不出来，所以读配置时会单独报出来。
-
-### inject · 追加提示
-
-| 键 | 默认 | 什么时候改 |
-| --- | --- | --- |
-| `on` | `true` | 不想在 thinking 块后追加提示时设 `false` |
-| `texts.dup` | `""` | `dup` 判红时追加的那段话 |
-| `texts.lang` | `""` | `lang` 判红时追加的那段话 |
-| `texts.clean` | `""` | 没有判红、但想补一句时追加的那段话 |
-| `texts.inline` | `""` | 留着的位置：`inline` 判据已删，这个键没有读者 |
-
-只对 `type === "thinking"` 的块追加，正文块原样返回。文案要过零容差自审，否则扩展拒绝启动。
 
 ### binding · 模型绑定
 

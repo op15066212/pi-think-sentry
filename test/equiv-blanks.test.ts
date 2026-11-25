@@ -11,7 +11,6 @@ import path from "node:path";
 const { Verdict } = await import("../src/verdict.ts");
 const { readConfig, readProblem, writeConfig } = await import("../src/config.ts");
 const dup = (await import("../src/features/dup.ts")).default;
-const inject = (await import("../src/features/inject.ts")).default;
 const intercept = (await import("../src/features/intercept.ts")).default;
 const strip = (await import("../src/features/strip.ts")).default;
 const lang = (await import("../src/features/lang.ts")).default;

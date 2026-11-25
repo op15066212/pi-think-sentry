@@ -38,18 +38,6 @@ test("message_update 里不许 statSync：注释说「不进 message_update」�
   assert.equal(n, 0, "message_update 里发生了 " + n + " 次 statSync");
 });
 
-test("模板表必须覆盖全部 kind：少一列就是 undefined，比三元静默落 clean 好", async () => {
-  const src = fs.readFileSync(path.join(ROOT, "src/verdict.ts"), "utf8");
-  // 2026-11-23：KINDS 加了类型注解（readonly Kind[]），正则要允许中间有 ": readonly Kind[]"。
-  const kinds = src.match(/const KINDS[^=]*= \[([^\]]+)\]/)?.[1].split(",").map((s) => s.trim().replace(/"/g, "")).filter(Boolean) ?? [];
-  // 2026-11-23：加 fold（句内/区间坍缩，处置=按行折叠，与 strip 的删行不同）
-  assert.deepEqual(kinds.sort(), ["fold", "none", "retract", "strip"], "KINDS 变了就要同步这条判据");
-  const table = src.slice(src.indexOf("TEMPLATE_OF"));
-  for (const k of kinds) {
-    assert.ok(new RegExp("^  " + k + ":", "m").test(table), "TEMPLATE_OF 缺 " + k);
-  }
-});
-
 test("配置文件的键集合与 defaults.ts 一一对应（多一个或少一个都红）", async () => {
   const { defaults } = await import("../src/config.ts");
   const { DEFAULTS } = await import("../src/defaults.ts");

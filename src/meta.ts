@@ -120,14 +120,6 @@ id: "signature-clean", kind: "mechanism", module: ["features/signature.ts", "alg
     反例: "keepTurns=0 时若 slice 下标写成 -keepTurns（漏了 max 0），会清掉一条本该保留的",
   },
   {
-id: "inject-thinking-only", kind: "mechanism", module: "features/inject.ts",
-    prop: "只对 type=thinking 的块动手，别的块原样返回",
-    形成: "src/features/inject.ts 与 strip.ts 的 c.type 判断",
-    引入: "node --experimental-strip-types --test test/inject.test.ts；期望 5 条全过、rc=0",
-    消去: "同一份 content 里放一个 text 块与一个 thinking 块，只有后者变",
-    反例: "往 text 块注入提示——正文被污染，用户直接看见",
-  },
-  {
 id: "intercept-en-only", kind: "mechanism", module: "features/intercept.ts",
     prop: "拦截只在 dir === \"en\" 时生效",
     形成: "src/features/intercept.ts 的 SAY_LANG",

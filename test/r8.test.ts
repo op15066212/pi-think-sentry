@@ -147,15 +147,6 @@ test("命令：allowGateway true 写进去的是布尔 true", async () => {
 
 
 
-test("命令：对象键走命令行要说清楚，不许假装改成功", async () => {
-  const f = path.join(os.tmpdir(), "curb-r8-d-" + process.pid + ".json");
-  fs.rmSync(f, { force: true });
-  try {
-    const r = await runCmd("inject texts x", f);
-    assert.match(r.ret, /对象/, "要说清楚这个键是对象");
-  } finally { fs.rmSync(f, { force: true }); }
-});
-
 // ===== 体检报告只有一份（b711ced1 的判据）=====
 
 test("两个模块各配错一次，两条都要在报告里（不许只留最后一条）", async () => {

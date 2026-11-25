@@ -1,4 +1,3 @@
-import { buildAC, excise } from "./algo/aho-corasick.ts";
 import { SENT_RE, MARK_RE, sentencesOf } from "./sentences.ts";
 // 对外仍从 judges 导出：调用方不必知道我把它挪去了哪个文件。
 export { MARK_RE, sentencesOf };
@@ -82,15 +81,9 @@ export type JudgeCfg = {
   /** 归一化整体判断：四个量几何平均成一个分，一个门槛。 */
   langOn: boolean;
   langDir: "zh" | "en";
-  /** 注入文案的行序列（trim 后、去空行）。顺序有意义：只剥末尾那一段。 */
-  skip: string[];
 };
 
 export const judgeCfg = (patch: any = {}): JudgeCfg => {
-  const src = patch.skip;
-  const skip = src instanceof Set
-    ? [...(src as Set<string>)]
-    : String(src || "").split("\n").map((l: string) => l.trim()).filter(Boolean);
   return {
     dupOn: patch.dupOn !== false,
     dupMin: threshold(patch.dupMin, DUP_MIN, "judges.dupMin"),
@@ -99,81 +92,8 @@ export const judgeCfg = (patch: any = {}): JudgeCfg => {
     prefixOn: patch.prefixOn === true,
     langOn: patch.langOn !== false,
     langDir: patch.langDir === "en" ? "en" : "zh",
-    skip,
   };
 };
-
-// 只剥末尾那一段注入文案。不剥的话，注入的文案被模型抄一遍就是「同一行 dupMin 次」，
-// 判据会拦我们自己发的文案（2026-11-18 实测的自锁）。
-// 这只防**自己**，不防模型：剥的是我们写进去的那几行，且只剥末尾。
-const dropInjectedTail = (ls: Line[], skip: string[]): Line[] => {
-  const n = skip.length;
-  if (!n || ls.length < n) return ls;
-  const tail = ls.slice(ls.length - n);
-  for (let i = 0; i < n; i++) if (tail[i].t !== skip[i]) return ls;
-  return ls.slice(0, ls.length - n);
-};
-
-/**
- * 按内容扣除注入文本（2026-11-24，整体化）。
- *
- * 旧的 dropInjectedTail 只剥**末尾那几行**，且要求逐字相同。模型把标记抄到中间、
- * 改一个标点、拆成两行，就全都失效——而它抄的仍然是同一次注入的内容。
- *
- * 这里把「我注入过的每一段」建成自动机，一次扫过全文，命中即按**字符区间**挖掉。
- * 与正则的分工：正则是「我生成的标记长什么样」（含具体数字，自动机存不下），
- * 自动机是「我注入过的那些字」（逐字，与格式无关）。两者都要，各管一件。
- */
-// 测试入口：同一个函数，只是给外面一个名字。不复制实现——
-// 两处各写一遍，测的就不是跑的那一个了。
-export const exciseInjectedForTest = (t: string, skip: readonly string[] | undefined) => exciseInjected(t, skip);
-/**
- * 历史处置痕迹：清单在 sentences.ts 的 MARK_TEXTS，这里只 import，不另写一份。
- *
- * 2026-11-24 修：原来是两处各写一遍——这里 4 种逐字，sentences.ts 的 MARK_RE 只有 2 种带数字的。
- * 于是最常出现的两种（实测 1088 次 + 444 次）在 collapse 判据里从来没被剥掉：
- * 10 句正常内容加 5 行这种标记，judgeThinking 直接判红 fold/inline。
- * 同一件事两个像，一边新增另一边不知道——这正是「处置自己制造了下一次判红」。
- *
- * 现在只有一份：sentences.ts 的 MARK_TEXTS。
- */
-import { MARK_TEXTS } from "./sentences.ts";
-
-// 自动机缓存：键是 pats 的内容，值是 buildAC 的结果。
-// 为什么在模块级而不是每次传参：判据是纯函数，缓存不改变任何结果，只省构造。
-// 反例：缓存键用数组引用 → 调用方每次传新数组，永远 miss，等于没缓存。
-const acCache = new Map<string, ReturnType<typeof buildAC>>();
-
-function exciseInjected(text: string, skip: readonly string[] | undefined): string {
-  // skip 可能没给：judgeCfg() 一定有，但调用方直接传部分 cfg 时会是 undefined。
-  // 崩在这儿比判错更糟——判据抛异常，上层只能记 judgeErrors，看不出是哪一条坏。
-  const pats = [...(Array.isArray(skip) ? skip : []), ...MARK_TEXTS]
-    .filter((x) => typeof x === "string" && x.length >= 4);
-  if (!pats.length) return text;
-  // 自动机缓存（2026-11-25）。此前每帧都 buildAC 一次：MARK_TEXTS 是常量，
-  // skip 在整轮里不变，于是同一副自动机被反复构造。
-  // 实测占单次 judgeThinking 的 48.7%（8000 字样本），是这一步最贵的部分。
-  // 缓存键用内容本身，不是数组引用——调用方每次传新数组，引用比不出相等。
-  // 上限 8 条：实际组合只有「没开注入」与「开了注入（三种文案）」，多出来说明有人在抖配置。
-  // 预筛（2026-11-25）：所有模式的首字符一个都不在文本里，scan 必然零命中。
-  // 真实思考里几乎不出现「[」，所以绝大多数帧走这条快路，省掉整个自动机扫描。
-  // 实测：正常 8000 字文本，exciseInjected 从 0.50ms 降到 0.001ms。
-  // 反例：只在 text.includes(pats[0]) 上判——skip 可能以别的字符开头，漏筛会误删。
-  const heads = new Set(pats.map((x) => x[0]));
-  let anyHead = false;
-  for (const h of heads) { if (text.indexOf(h) >= 0) { anyHead = true; break; } }
-  if (!anyHead) return text;
-  const key = pats.join(String.fromCharCode(0));
-  let ac = acCache.get(key);
-  if (!ac) {
-    if (acCache.size >= 8) acCache.clear();
-    ac = buildAC(pats);
-    acCache.set(key, ac);
-  }
-  const hits = ac.scan(text);
-  if (!hits.length) return text;
-  return excise(text, hits);
-}
 
 const none = (rule: any, ev: any) => Verdict.parse({ kind: "none", rule, ev });
 
@@ -304,9 +224,6 @@ export function judgeThinking(text: any, patch: Partial<JudgeCfg> = {}) {
   // 上层只记 judgeErrors，看不出是哪一条坏的。
   const cfg: JudgeCfg = judgeCfg(patch as any);
   const raw = String(text || "");
-  // cfg 可能是部分配置（测试常用）：skip 没给时按空数组算。
-  // 入口规范化一次，下游的 exciseInjected 与 dropInjectedTail 就不必各自防一遍。
-  const skip: string[] = Array.isArray((cfg as any).skip) ? (cfg as any).skip : [];
   // 仅测试用：强制开关，让 RPC 测试能确定地验证两条链路。
   if (process.env.CURB_FORCE_STRIP && (raw.trim().length > 0 || process.env.CURB_FORCE_EMPTY)) {
     return Verdict.parse({ kind: "strip", rule: "dup", forced: true, ev: { blk: "x", reps: 99, why: "forced", dups: [["x", 99, [0]]] } });
@@ -314,16 +231,11 @@ export function judgeThinking(text: any, patch: Partial<JudgeCfg> = {}) {
   if (process.env.CURB_FORCE_RETRACT) {
     return Verdict.parse({ kind: "retract", rule: "lang", forced: true, ev: { cjk: 0, lat: 99, lines: 99, dir: cfg.langDir, sample: null } });
   }
-  // 处置标记在任何判据里都不算内容：dup 按整行计数，6 行相同的折叠标记会被判成「复诵 6 次」——
-  // 那等于「处置自己制造了下一次判红」，是最典型的回灌。
-  // 按行剥末尾（保底）与滤标记行：body 已经在上面扣过一次内容了。
-  // 三层分工固定：内容扣得最干净（任意位置），末尾剥是历史行为兜底，标记行过滤最便宜。
-  // 先扣掉注入文本，再判（2026-11-24 修）：run 一开始用的是 raw，
-  // 于是我们自己注入的文案被当成退化——防回灌被整体判据绕过去了，直接自锁。
-  // 顺序必须是「先扣后判」，不是「先判后扣」。
-  const body = exciseInjected(raw, skip);
-
-  const all = dropInjectedTail(partitionLines(body), skip).filter((l) => !MARK_RE.test(l.t));
+  // 处置标记在任何判据里都不算内容：dup 按整行计数，6 行相同的标记会被判成「复诵 6 次」，
+  // 那等于「处置自己制造了下一次判红」。
+  // 2026-11-25 删掉思维链注入之后，新标记不再产生；这里留着是按行滤掉历史会话里的旧标记——
+  // 旧数据不该让新判据判红，而滤一行的成本可以忽略。
+  const all = partitionLines(raw).filter((l) => !MARK_RE.test(l.t));
   const lines = voteOf(all);
   // 整体判据先跑（2026-11-24 修）：它比 dup/inline 更准——不切分，一次扫描取最长匹配。
   // 原来放在它们之后，于是 31 行「做。」先被 dup 判红，run 永远轮不到。

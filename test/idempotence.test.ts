@@ -9,7 +9,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { settle } from "../../pi-escape-guard/src/scan.ts";
-import inject from "../src/features/inject.ts";
 import strip from "../src/features/strip.ts";
 import { judgeThinking } from "../src/judges.ts";
 
@@ -22,23 +21,6 @@ test("escape-guard settle 幂等：还原过的文本再跑一遍不变", () => 
   assert.notEqual(once.out, dirty, "坏样本：这条必须真的被还原，否则下面一句恒绿");
   const twice = settle(once.out, 3);
   assert.equal(twice.out, once.out);
-});
-
-test("inject 幂等：同一段文案追加两遍，末尾只留一份", () => {
-  const c0 = [{ type: "thinking", thinking: "正文" }];
-  const c1 = inject.applyWith(c0, MARK, { line: 3 });
-  const c2 = inject.applyWith(c1, MARK, { line: 3 });
-  assert.notEqual(c1[0].thinking, c0[0].thinking, "坏样本：第一遍必须真的追加");
-  assert.equal(c2[0].thinking, c1[0].thinking);
-});
-
-test("inject 幂等不受文案内容影响：换文案后旧文案仍在，新文案照样只加一份", () => {
-  const c0 = [{ type: "thinking", thinking: "正文" }];
-  const c1 = inject.applyWith(c0, "\n[旧文案]", {});
-  const c2 = inject.applyWith(c1, "\n[新文案]", {});
-  const c3 = inject.applyWith(c2, "\n[新文案]", {});
-  assert.equal(c3[0].thinking, c2[0].thinking);
-  assert.ok(c3[0].thinking.endsWith("[新文案]"));
 });
 
 test("strip 一轮就到定点：判红 → 清 → 再判，第二轮不再改", () => {

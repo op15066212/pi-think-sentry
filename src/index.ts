@@ -8,9 +8,7 @@ import { validThreshold, MIN_FLOOR } from "./threshold.ts";
 import { TRUE_WORDS, FALSE_WORDS, rejectsOf, validUnit } from "./values.ts";
 import { detectBinding, label as bindingLabel, type Binding } from "./features/binding.ts";
 import { judgeThinking, judgeCfg, type JudgeCfg } from "./judges.ts";
-import { templateKeyOf } from "./verdict.ts";
 import strip from "./features/strip.ts";
-import inject from "./features/inject.ts";
 import intercept, { SAY_BLOCK, SAY_LANG } from "./features/intercept.ts";
 import { planSignatureCleanup, planSignatureCleanupIncremental, type CleanupState } from "./algo/signature.ts";
 
@@ -47,11 +45,11 @@ const ledger = (rec: Record<string, unknown>) => {
 //   cleaned / turns      真删过东西的回答比例
 //   opaque / judgeCalls  判据看不见这一段的帧比例（整段落进围栏/缩进）
 //   judgeErrors           判据抛过几次。非零就说明有帧根本没判——与「判了但干净」必须分开
-// 2026-11-21：原来只有 judgeCalls / blocked / cleaned / injected 四个，任意两个都配不成对，
+// 2026-11-21：原来只有四个数，任意两个都配不成对，
 // 于是「拦得准不准」这个问题在数据里没有答案。计数不是为了数，是为了成对比出来的。
 export const stats = {
   judgeCalls: 0, turns: 0, red: 0, blocked: 0, redCalls: 0,
-  cleaned: 0, injected: 0, judgeErrors: 0,
+  cleaned: 0, judgeErrors: 0,
   // skippedByBinding：因为后端会拒或会丢而放弃改写的轮数。与 turns 成对。
   skippedByBinding: 0,
   // turnJudgeErrors：turn_end 里判据抛异常的轮数。与 judgeErrors（帧级）分开——
@@ -95,7 +93,7 @@ const sessionKey = () => process.env.CURB_SESSION_KEY
 let cfg: any = null;
 let cfgStamp = -1;
 // 判据的配置与 cfg 同源，一次构建（2026-11-22 第二版）：judges 不再持有全局，
-// 由这里把 cfg.dup / cfg.lang / cfg.inject 投影成一个 JudgeCfg 传下去。
+// 由这里把 cfg.dup / cfg.lang 投影成一个 JudgeCfg 传下去。
 // 投影只发生在这一处，所以「判据用的门槛」不可能是第二份。
 let jcfg: JudgeCfg = judgeCfg();
 // R7：这台机器上「改 thinking 会不会被后端拒或丢」。默认按能改起步，
@@ -131,8 +129,6 @@ const applyCfg = (c: any) => {
   jcfg = judgeCfg({
     dupOn: c.dup.on, dupMin: c.dup.min,
     langOn: c.lang.on, langDir: c.lang.dir, boundaryMinExempt: c.intercept.boundaryMinExempt,
-    // 三份模板都要剥：judgeCfg 按换行切，所以 join 成一行（传数组会被 String() 变成逗号拼接）。
-      skip: c.inject.on ? [c.inject.texts.dup, c.inject.texts.lang, c.inject.texts.clean].filter(Boolean).join(String.fromCharCode(10)) : "",
   });
   return c;
 };
@@ -217,10 +213,9 @@ const parseValue = (d: any, raw: string): { ok: true; v: any } | { ok: false; wh
     if (v === null) return { ok: false, why: "数字必须是不小于 " + MIN_FLOOR + " 的整数，收到 " + JSON.stringify(raw) + "。没有写入。" };
     return { ok: true, v };
   }
-  // 对象类（inject.texts）没有「一行命令行写进去」的形状：说清楚，别让人以为改成功了。
-  if (typeof d === "object" && d !== null) {
-    return { ok: false, why: "这个键是对象，命令行改不了。用 think-sentry " + "<模块> 看当前值，或直接编辑配置文件。" };
-  }
+  // 2026-11-25：这里原来有一段「这个键是对象，命令行改不了」的分支，
+  // 唯一需要它的形状是 inject.texts。注入删掉之后没有对象型字段了，分支随之删除——
+  // 留着它是「没有读者的代码」，而它保护的误用已经写不出来。
   return { ok: true, v: raw };
 };
 
@@ -249,7 +244,7 @@ const runCommand = (args: any) => {
   if (!a) {
     // 把「配置文件读坏了」直接放进输出：人改坏了得能看见，不然插件只是安静地用默认值跑。
     // rejected 同理：门槛给了值但不合法时会被静默兜底，这里把次数摆出来。
-    // R7：第一项就是 capture——配置里写了 inject.text 却因为是 Anthropic/responses 而不生效时，
+    // R7：第一项就是 capture——配置写了却因为是 Anthropic/responses 而不生效时，
     // 人得在这儿看出来，而不是以为改写生效了。
     // 默认 4 行短表，每行 ≤ 44 字符（2026-11-23 用户三次反馈：一坨 JSON 很丑、会溢出、没有复制按钮）。
     // 要机读就加参数：/think-sentry json
@@ -518,15 +513,11 @@ export default async function installGuard(pi: any) {
     }
     redFrames = [];
 
-    const before = content;
-    // 模板名从 verdict.ts 的表里查，不在调用点写三元（R8）。
-    const withMark = c.inject.on ? inject.applyWith(content, c.inject.texts[templateKeyOf(v as any) ?? "clean"] || "", v?.ev) : content;
-    if (withMark !== before) stats.injected++;
     writeState();
 
     const entries = [];
-    if (withMark !== source) {
-      entries.push({ type: "context_edit", targetId: event.messageEntryId, replacement: { content: withMark } });
+    if (content !== source) {
+      entries.push({ type: "context_edit", targetId: event.messageEntryId, replacement: { content } });
     }
     // 清理 thinkingSignature，只保留最近 keepTurns 个大轮（2026-11-24 用户要的）。
     // ctx.sessionManager.getEntries() 是唯一能拿到历史 entry 的接口；

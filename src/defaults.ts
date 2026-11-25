@@ -59,7 +59,6 @@ export const DEFAULTS = {
   // 默认关闭：它改的是历史 entry，第一次开之前应该先在一个会话上看一眼效果。
   // keepTurns=30（用户定的，按最小轮）：一条 assistant 消息一轮。小轮就要放宽，：有些 provider 要求最近的消息带签名才能续上。
   signature: { on: true, keepTurns: 30 },
-  inject: { on: true, texts: { dup: "", lang: "", clean: "", inline: "" } },
   binding: { allowGateway: false },
 } as const;
 

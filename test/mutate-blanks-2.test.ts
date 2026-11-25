@@ -9,7 +9,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { validThreshold } from "../src/threshold.ts";
-import inject from "../src/features/inject.ts";
 import intercept, { SAY_BLOCK, SAY_LANG } from "../src/features/intercept.ts";
 
 const stripV = { kind: "strip", rule: "dup", ev: { blk: "跑。", reps: 3, why: "3 次", dups: [["跑。", 3, [1, 2]]] } };
@@ -18,13 +17,6 @@ const langV = { kind: "retract", rule: "lang", ev: { cjk: 0, lat: 9, lines: 5, d
 test("validThreshold 认数字本身，不是只认字符串（threshold.ts:28 的 || 翻成 && 必须红）", () => {
   assert.equal(validThreshold(4), 4, "number 输入要原样通过");
   assert.equal(validThreshold(0), null, "0 低于下限，仍是 null");
-});
-
-test("inject 遇到畸形 content（含 null 元素）不抛（inject.ts:20 / :23 的 && 翻成 || 必须红）", () => {
-  // 变异后 c || c.type 对 null 直接取属性 → TypeError
-  assert.doesNotThrow(() => inject.applyWith([null, { type: "text", text: "答" }], "标记"));
-  // 变异后 out[i] || out[i].type 对尾部 null 同理
-  assert.doesNotThrow(() => inject.applyWith([{ type: "thinking", thinking: "想" }, null], "标记"));
 });
 
 test("拦下时说清重复的是哪一行、重复几次（intercept.ts:4 / :7 的 || 翻成 && 必须红）", () => {

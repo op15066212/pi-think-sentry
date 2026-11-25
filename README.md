@@ -59,7 +59,7 @@
 一个文件：插件目录下的 `settings.json`，首次启动自动生成，之后不再覆盖。
 改完下一次 `session_start` 生效，不用重启。全部键与默认值见 `SETTINGS.md`。
 
-七个模块：`intercept` / `dup` / `lang` / `signature` / `strip` / `inject` / `binding`。
+六个模块：`intercept` / `dup` / `lang` / `signature` / `strip` / `binding`。
 默认值只有一处：`src/defaults.ts` 的 `DEFAULTS`。文档与它不一致时以代码为准，判据会告诉你哪边错。
 
 ## 判据怎么验

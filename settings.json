@@ -1,13 +1,7 @@
 {
-  "lang": "zh",
-  "inject": {
+  "lang": {
     "on": true,
-    "texts": {
-      "dup": "\n[已折叠：重复]",
-      "lang": "\n[已改：语言]",
-      "clean": "",
-      "inline": ""
-    }
+    "dir": "zh"
   },
   "dup": {
     "on": true,

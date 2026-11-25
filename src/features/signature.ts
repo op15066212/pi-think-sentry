@@ -14,7 +14,7 @@
 //   清掉最后几轮会让下一次请求被拒。keepTurns 就是那个余量。
 //
 // 这是配置单元，判据与执行在 features/session 侧（index.ts 的 turn_end），
-// 与 strip / inject 同一个形状。
+// 与 strip 同一个形状。
 
 import { asBool } from "../values.ts";
 import { defaultsOf } from "../defaults.ts";

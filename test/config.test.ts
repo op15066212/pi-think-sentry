@@ -68,14 +68,6 @@ test("单个字段值非法：只退这一个字段", () => {
   assert.equal(cfg.lang.dir, "zh", "dir 只认 zh 或 en");
 });
 
-test("旧形状迁移：顶层 selfCheck / selfCheckText 挪进 inject", () => {
-  write({ lang: "en", selfCheck: false, selfCheckText: "旧文案" });
-  const cfg = readConfig();
-  assert.equal(cfg.lang.dir, "en", "旧形状 lang 是字符串，按方向读");
-  assert.equal(cfg.inject.on, false, "selfCheck false 对应 inject.on false");
-  assert.equal(cfg.inject.texts.dup, "旧文案", "selfCheckText 对应 inject.text");
-});
-
 test("配置文件坏了：拒绝写入，不覆盖原有内容", () => {
   // 2026-11-21 实测的真缺陷：readRaw 把「文件不存在」和「文件坏了」都当成空对象，
   // 于是写一个键就把用户的整份配置冲掉。多一个尾逗号就够触发。
@@ -149,20 +141,6 @@ test("strip 门槛独立于 dup 门槛", () => {
 // 「数组算坏」各翻一次，123 条测试全绿。已有的迁移用例只覆盖了「两个旧键都在、inject 不在」。
 // 三种真实形态各补一句：inject 已在（旧键不该覆盖它）、只写了文案（不该要求两个键同时在场）、
 // 文件是数组（不是对象就当坏，不能拿它当配置跑）。
-test("迁移不覆盖已有的 inject", () => {
-  write({ inject: { on: true, text: "新的" }, selfCheck: false });
-  const cfg = readConfig();
-  assert.equal(cfg.inject.texts.dup, "新的", "inject 已在时，旧键不许覆盖它");
-  assert.equal(cfg.inject.on, true);
-});
-
-test("只有 selfCheckText、没有 selfCheck 时也要迁移", () => {
-  write({ selfCheckText: "只写了文案" });
-  const cfg = readConfig();
-  assert.equal(cfg.inject.texts.dup, "只写了文案");
-  assert.equal(cfg.inject.on, true, "没写 selfCheck 时默认开");
-});
-
 test("配置是数组算坏，不能当对象用", () => {
   fs.writeFileSync(TMP, "[]");
   readConfig();
