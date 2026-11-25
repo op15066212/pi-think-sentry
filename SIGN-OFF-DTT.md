@@ -9,7 +9,7 @@
 | 判据 | `node verify-dtt.mjs` → 期望 rc=0 |
 | 坏样本 | `node verify-dtt.mjs --selftest` → 期望 5/5 全红 |
 | 指纹一致 | `node scripts/check-dtt-fingerprint.mjs` → 期望 rc=0；本表那行与现值不同就红 |
-| 指纹 | `eef5ad6789bdd9c567da74f9f73886b5f5895b7e9d02f8769712b4d8370942f1` |
+| 指纹 | `83a420e0d9fbc4f1b1171b0b2513eda46cd9a4a4153e8b6de21f751290fc0503` |
 | 既有测试 | `npm test` |
 | sorry | 无 |
 
