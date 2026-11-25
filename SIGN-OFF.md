@@ -789,3 +789,68 @@ node scripts/check-rc-pipe.mjs --selftest → rc=0，十条 PASS（4 条基础 +
 1. `check-rc-pipe` 的另两条防线（注释跳过、表格行不算）未做变异验证。
 2. 「跳过 check-rc-pipe 自己」这条在被引号剥离覆盖后是否仍必要，修改方自述「去掉不红」，复核方未复现。
 3. `signoff-commits.mjs --strict` 报历史行不完整，按既定结论不回填、不进 gate。
+
+## 重签（2026-11-25T14:13Z，tool_call 拦截加上之后）
+
+### 身份（`node bin/fingerprint.mjs --head` 现取，采样 2026-11-25T14:09:00Z）
+
+| 项 | 值 |
+| --- | --- |
+| 总指纹 | `d1fdd5dc22ea3901543a31653794aa7f` |
+| 口径 | HEAD `c56767b` |
+| 文件数 / 总字节 | 108 / 584,265（上一版 106 / 576,835） |
+| 取前取后 git status | 0 行 / 0 行 |
+
+上一版 `bbf509e9` 作废。
+
+### 判据（整条命令的 rc）
+
+```
+npm run verify → rc=0   tests 246，gate 5 条判据 10 步（5 步 selftest）0 失败
+node bin/fingerprint.mjs --selftest → rc=0，八条 PASS
+node bin/sign.mjs 复核方 "…" → rc=0，本节签字行由它印出
+```
+
+### 复核方自己跑的三件（都在 escape-guard 那个仓，本节只为记录同批核对）
+
+一、六种边界的纯函数核对（`findEscapeRuns`）
+
+```
+3 个连续转义   min=3 → 命中
+2 个连续转义   min=3 → 不命中
+2 个连续转义   min=2 → 命中
+正则字符类     min=3 → 不命中（两个转义被 - 隔开）
+正则字符类     min=2 → 不命中
+单个转义       min=3 → 不命中
+```
+
+二、钩子链路（造一个假 pi 接住 handler 再调）
+
+```
+注册到的钩子：session_start, tool_call, tool_result, message_end
+3 个连续转义        → block=true，reason 里给出解析结果
+正则字符类          → 放行
+正常输入            → 放行
+转义埋在两层嵌套里  → block
+```
+
+三、旧写法恒不生效，有实测
+
+```
+同一段文本：直接匹配命中 1 处；先 JSON.stringify 再匹配命中 0 处
+```
+
+这一条值得单独记：它说明「多包一层」不是风格问题，是**判据整个失效**且不报错。
+它自己写的六条测试红了两条才发现，属于机器抓到（不是碰巧）。
+
+### 签字
+
+| 角色 | 会话 | 状态 | 时刻 |
+| --- | --- | --- | --- |
+| 复核方 | pi 插件2 `f15be404` | | 复核方 | f15be404 | **已签**：`d1fdd5dc22ea3901543a31653794aa7f`、npm run verify rc=0；tool_call 拦截链路实测（3 连续转义拦截、正则字符类放行、嵌套 input 拦截）；旧 stringify 写法实测恒不生效、取前取后 0 行 | 2026-11-25T14:11:08Z | | 2026-11-25T14:13Z |
+| 修改方 | pi 插件 `9d80afea` | **已签**：`d1fdd5dc`、verify rc=0、local = remote | 2026-11-25T14:07Z |
+
+### 未验证项
+
+1. `signoff-commits.mjs --strict` 仍报历史行不完整，按既定结论不回填、不进 gate。
+2. 拦截门槛不判「散着写的转义」（每隔几个字插一个，min=3 不拦）。修改方已在 14:07 那封里提出，复核方答复见 escape-guard 那份。
