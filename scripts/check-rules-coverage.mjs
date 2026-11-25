@@ -75,31 +75,39 @@ export async function check(dir = here) {
 
 if (process.argv.includes("--selftest")) {
   const { RULES } = await import(pathToFileURL(path.join(here, "src", "meta.ts")).href);
-  const { MODULES } = await import(pathToFileURL(path.join(here, "src", "config.ts")).href);
   const srcDir = path.join(here, "src");
-  const realFeatures = fs.readdirSync(path.join(srcDir, "features")).filter((f) => f.endsWith(".ts"));
-  const realNames = MODULES.map((m) => m.name);
+
+  // 自造样本对，不读真实盘面（2026-11-25，pi 插件2 指出）。
+  //
+  // 原先第 ②③④ 条用真实 MODULES / 真实 features 构造，于是它们的红绿取决于
+  // 工作区干净程度——临时建一个 features/xxx.ts 调试，selftest 就红。
+  // 判据自身对不对，不该依赖此刻盘上正好有什么。
+  // 全部改成自造名字，与工作区彻底解耦。
+  const names = ["alpha", "beta"];
+  const files = ["alpha.ts", "beta.ts"];
 
   const cases = [];
 
-  // ① 规则点名的 module 文件不存在（原有反例）
+  // ① 规则点名的 module 文件不存在（原有反例）。这条必然读盘：它问的就是「盘上有没有」。
+  //    但它塞的是一个必然不存在的路径，所以与工作区状态无关。
   const badRules = RULES.map((r, k) => (k === 0 ? { ...r, module: "features/不存在的模块.ts" } : r));
   cases.push(["改坏一条 module 后应红", missingModules(badRules, srcDir).length > 0]);
 
-  // ② 上游到下游：清单里有一项，盘上没有对应文件
+  // ② 上游到下游：清单里有一项，盘上没有
   cases.push([
     "MODULES 多一项、盘上没有 → 应红",
-    diffModulesAndFeatures([...realNames, "fakeNotOnDisk"], realFeatures).length > 0,
+    diffModulesAndFeatures([...names, "gamma"], files).length > 0,
   ]);
 
-  // ③ 下游到上游：盘上有一个文件，清单里没登记
+  // ③ 下游到上游：盘上有一个，清单里没登记
   cases.push([
     "盘上多一个文件、MODULES 没登记 → 应红",
-    diffModulesAndFeatures(realNames, [...realFeatures, "fakeOnDisk.ts"]).length > 0,
+    diffModulesAndFeatures(names, [...files, "gamma.ts"]).length > 0,
   ]);
 
-  // ④ 对照：真实盘面对拍必须干净，否则这两个方向在报假警
-  cases.push(["真实盘面对拍必须干净 → 绿", diffModulesAndFeatures(realNames, realFeatures).length === 0]);
+  // ④ 挡「恒非空」：一个永远报错的实现会让 ②③ 都 PASS。
+  //    用一个两边都齐的样本对，结果必须是空。
+  cases.push(["两边都齐 → 必须返回空（挡恒非空）", diffModulesAndFeatures(names, files).length === 0]);
 
   let n = 0;
   for (const [name, ok] of cases) {

@@ -696,7 +696,7 @@ node scripts/gate.mjs
 | 脚本 | 挡什么 | 反例 |
 |---|---|---|
 | `check-doc-accuracy.mjs` | 文档里的配置键与路径，盘上必须真有 | 文档写已删的 `strict` |
-| `check-rules-coverage.mjs` | 规则表与实现对齐；`MODULES` 与 `features/` 两个方向都查（清单→盘、盘→清单） | 改坏一条 `module` |
+| `check-rules-coverage.mjs` | 规则表与实现对齐；`MODULES` 与 `features/` 两个方向都查（清单→盘、盘→清单） | 改坏一条 `module`；或 `features/` 里多一个没登记的文件（selftest 用自造样本，不读真实盘，所以不受工作区影响） |
 | `check-rc-pipe.mjs` | 报退出码的那一行不许有管道 | `node x \| tail; echo rc=$?` |
 | `check-main-guard.mjs` | 有导出的脚本，「直接跑」与「被 import」两个方向都要对 | 删掉 `isMain` 判定 |
 
