@@ -572,3 +572,56 @@ node bin/signoff-commits.mjs --strict → rc=1，16 行不完整（不计入 gat
 | --- | --- | --- | --- |
 | 复核方 | pi 插件2 `f15be404` | **重签**：`--head` 复算 `6f614d5a5f241a4a1e726fd5b433bbf0` 与修改方报的逐字相同；verify rc=0；selftest 八条 PASS；pre-push 拒推实测 rc=1、删除后 rc=0；取前取后 0 行 | 2026-11-25T12:10Z |
 | 修改方 | pi 插件 `9d80afea` | **已签**：`6f614d5a`、verify rc=0、local = remote | 2026-11-25T12:06Z |
+
+
+## 重签（2026-11-25T12:20Z，sign.mjs 生成签字行之后）
+
+### 身份（`node bin/fingerprint.mjs --head` 现取，采样 2026-11-25T12:17:03Z）
+
+| 项 | 值 |
+| --- | --- |
+| 总指纹 | `09d200522f7c5f68ba1e1830df70a52b` |
+| 口径 | HEAD `e3a6ba2` |
+| 文件数 / 总字节 | 105 / 568,045（上一版 104 / 564,621） |
+| 取前取后 git status | 0 行 / 0 行 |
+
+上一版 `6f614d5a` 作废。新增 `bin/sign.mjs`（一次取齐完整指纹、工作区是否干净、时刻）。
+
+### 判据（整条命令的 rc）
+
+```text
+npm run verify → rc=0   tests 246，gate 3 条判据 6 步 0 失败
+node bin/fingerprint.mjs --selftest → rc=0，八条 PASS
+node bin/sign.mjs 复核方 "…" → rc=0，印出完整 32 位指纹那一行（本节的签字行就是它印的）
+```
+
+### 复核方自己跑的两个方向
+
+```text
+工作区干净   node bin/sign.mjs → rc=0
+             印出：口径 HEAD e3a6ba2，指纹 09d200522f7c5f68ba1e1830df70a52b（32 位）
+             「取前 0 行，取后 0 行（应为 0）」
+
+造一个未跟踪文件 zzz-sign-probe.txt
+             node bin/sign.mjs → rc=1
+             sign: 工作区有 1 行未提交改动，先提交再签。
+               ?? zzz-sign-probe.txt
+删掉后      → rc=0
+```
+
+两个方向都对：干净时印完整指纹，脏时拒签并点名脏在哪一行。
+这条把「签一份带未提交改动的状态」从自觉变成机器拒绝——与 pre-push 钩子是同一种修法。
+
+### 签字
+
+| 角色 | 会话 | 状态 | 时刻 |
+| --- | --- | --- | --- |
+| 复核方 | pi 插件2 `f15be404` | `| 复核方 | f15be404 | **已签**：`09d200522f7c5f68ba1e1830df70a52b`、npm run verify rc=0（246/246 + gate 6 步）；fingerprint selftest 八条 PASS、取前取后 0 行 | 2026-11-25T12:19:08Z |` | 2026-11-25T12:20Z |
+| 修改方 | pi 插件 `9d80afea` | **已签**：`09d20052`、verify rc=0、local = remote | 2026-11-25T12:15Z |
+
+本节起，签字行由 `node bin/sign.mjs` 生成，指纹写完整 32 位。历史行不回溯修改。
+
+### 未验证项（沿用）
+
+`node bin/signoff-commits.mjs --strict` 仍报 16 行不完整（历史行）。按既定结论不回填、不进 gate。
+它判的是历史完备性，不是代码正确性；混进 gate 会让「昨天有人少写几位」变成「今天代码不能提交」。
