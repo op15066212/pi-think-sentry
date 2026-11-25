@@ -270,3 +270,57 @@ const TOP_FILES = ["package.json", "tsconfig.json", "README.md", "settings.json"
 
 要补机器判据，得在仓里存一份期望清单与 `filesOf` 的实际输出对拍——那本身是「同一真值两处各写一遍」。
 按本仓 P11 的形状，这条要么不做，要么连「清单与实现不同就必须红」一起做。目前没做，记为未验证。
+
+
+## 重签（2026-11-25T10:33Z，被签面从 91 涨到 101）
+
+### 身份（`node bin/fingerprint.mjs --head` 现取，采样 2026-11-25T10:26:45Z）
+
+| 项 | 值 |
+| --- | --- |
+| 总指纹 | `87dd82809f0b2771404439dbc6170c87` |
+| 口径 | HEAD `dee617f` |
+| 文件数 / 总字节 | 101 / 541,172（上一版 91 / 456,420） |
+| 取前取后 git status | 0 行 / 0 行 |
+
+上一版 `bc3fbe03` 作废。这一版的实质变化不是「更严」，是**被签对象变大**：
+方向从「手写清单说签哪些」反过来成「默认全收，要排除得点名并写理由」。
+原来漏掉的 `verify-dtt.mjs`（一条判据）、`llms.txt`、`doc-bridge.config.json`、
+`.gitignore`、`docs/` 下的文件现在都在被签面里。
+
+### 判据（整条命令的 rc）
+
+```text
+npm run verify → rc=0（gate 3 条判据 6 步 0 失败 + verify-dtt 全过）
+node bin/fingerprint.mjs --selftest → rc=0，五条 PASS
+```
+
+### 复核方自己跑的四个变异
+
+| 变异 | 应然 | 实测 |
+| --- | --- | --- |
+| `DIRS` 去掉 `docs` | A 判据红并点名 | rc=1，A 红：`未签：docs/for-agents/think-sentry.md, docs/guard-rules.md` |
+| `EXTS` 去掉 `.md` | B 判据红 | rc=1，B 红：`未处理：.md`（A 也红，同源） |
+| `EXCLUDE` 加 `src` | 修改方担心会静默缩小被签面 | 文件数 101 不变、selftest rc=0 |
+| `EXCLUDE` 加 `src/index.ts` | 同上 | 文件数 101 不变、selftest rc=0 |
+
+前两条它说的红法都复现了，且点名到具体文件，不是「有缺口」。
+后两条说明：`EXCLUDE` 目前只作用于**顶层文件**（`filesOf` 里 `isExcluded` 只出现在顶层循环），
+DIRS 内路径写进 EXCLUDE 既不生效也不报错 —— 是死配置，不是缩面风险。判据形状见下方未验证项。
+
+### 签字
+
+| 角色 | 会话 | 状态 | 时刻 |
+| --- | --- | --- | --- |
+| 复核方 | pi 插件2 `f15be404` | **重签**：`--head` 复算 `87dd8280` 与修改方报的逐字相同；verify rc=0；selftest 五条 rc=0；A/B 两个变异各红一次并点名到文件；取前取后 0 行 | 2026-11-25T10:33Z |
+| 修改方 | pi 插件 `9d80afea` | **已签**：`87dd8280`、verify rc=0、local = remote | 2026-11-25T10:26Z |
+
+### 未验证项（EXCLUDE 的理由与生效范围都没有机器判据）
+
+两条，形状写下来，未实现：
+
+1. `EXCLUDE` 里每个 key 的理由是人写的，没有判据证明理由成立。
+2. `EXCLUDE` 的 key 若指向 `DIRS` 内的路径，它不生效也不报错（本次实测）。
+   可加的一条：`EXCLUDE` 每个 key 必须能在顶层 `readdir` 里找到同名项，否则红。
+
+第 2 条与第 1 条不同：它不是「理由对不对」，是「写了等于没写」——按本仓 P19 的形状，死配置该删。
