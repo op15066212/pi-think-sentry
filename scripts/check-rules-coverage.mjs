@@ -13,6 +13,19 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
+/** 一条规则点名的模块。允许是数组（2026-11-24）：一条判据常由配置单元与实现两件组成。 */
+const mods = (r) => (Array.isArray(r.module) ? r.module : r.module ? [r.module] : []);
+
+/** 每条规则点名的模块里，哪个不在盘上。正常模式与 --selftest 共用这一份。
+ *  2026-11-25 之前两处各写一遍：mods 加了数组支持，selftest 那处没跟着改，
+ *  一跑就崩（path.join 收到 Array）。因为 gate 那时不跑 selftest，这个崩藏了整整一天。
+ *  两处各写一遍同一段判断，改一处等于没改。 */
+function missingModules(rules, srcDir) {
+  const out = [];
+  for (const r of rules) for (const m of mods(r)) if (!fs.existsSync(path.join(srcDir, m))) out.push(r.id + " 点名的 " + m + " 不存在");
+  return out;
+}
+
 export async function check(dir = here) {
   const src = path.join(dir, "src");
   if (!fs.existsSync(src)) { console.log("缺 " + src); process.exit(2); }
@@ -29,15 +42,11 @@ export async function check(dir = here) {
   // 2026-11-24：module 允许是数组。一条判据常常由两件组成——配置单元（features/xxx.ts）
   // 与实现（algo/xxx.ts 或 features/yyy.ts）。只允许一个字符串时，
   // 实现那一侧就无法被点名，于是「文件存在但规则表里没有它的条目」永远抓不到。
-  const mods = (r) => (Array.isArray(r.module) ? r.module : r.module ? [r.module] : []);
+
   const named = new Set(mods({ module: RULES.flatMap(mods) }).map((m) => m.replace(/^features\//, "")));
   for (const f of features) if (!named.has(f)) problems.push("features/" + f + " 没有任何 RULES 条目点名");
 
-  for (const r of RULES) {
-    for (const m of mods(r)) {
-      if (!fs.existsSync(path.join(src, m))) problems.push(r.id + " 点名的 " + m + " 不存在");
-    }
-  }
+  for (const p of missingModules(RULES, src)) problems.push(p);
   return problems;
 }
 
@@ -46,7 +55,9 @@ if (process.argv.includes("--selftest")) {
   const { RULES } = await import(pathToFileURL(path.join(here, "src", "meta.ts")).href);
   const bad = RULES.map((r, i) => (i === 0 ? { ...r, module: "features/不存在的模块.ts" } : r));
   const problems = [];
-  for (const r of bad) if (r.module && !fs.existsSync(path.join(here, "src", r.module))) problems.push(r.id + " 点名的文件不存在");
+  // 与正常模式同源：调 missingModules，不在这里重写一遍判断。
+  // 2026-11-25 这里原先是 path.join(here, "src", r.module)——module 改成数组之后必崩。
+  for (const p of missingModules(bad, path.join(here, "src"))) problems.push(p);
   const ok = problems.length > 0;
   console.log((ok ? "PASS" : "FAIL") + "  改坏一条 module 后应红：实得 " + ok);
   console.log(ok ? "selftest: 坏样本红了" : "selftest: 坏样本没红");

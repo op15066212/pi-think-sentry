@@ -1,5 +1,46 @@
 # 历史
 
+## 0.2.2 · 2026-11-25 · 总闸补 selftest：一跑就抓到一处藏了一天的崩溃
+
+**改了什么**：`scripts/gate.mjs` 从「跑每条判据的正常模式」改成「先 `--selftest` 再正常模式」，
+并把发现面从 `scripts/check-*.mjs` 扩到「加上仓根 `verify-*.mjs`」。
+
+**为什么必须改**：判据自己会不会红，从来不在执行面上。
+`check-doc-accuracy` 与 `check-rules-coverage` 都写了 `--selftest`，两个都没人跑。
+
+**一跑就崩**：`check-rules-coverage.mjs --selftest` 报
+`TypeError: The "path" argument must be of type string. Received an instance of Array`。
+
+根因：11-24 给 `module` 字段加了数组支持（一条判据常由配置单元与实现两件组成），
+改的是 `check()` 里那份判断；`--selftest` 里还留着旧版 `path.join(here, "src", r.module)`。
+**同一段判断在两处各写一遍，只改了一处。**
+
+因为 gate 那时不跑 selftest，这个崩不是藏了几小时，是藏了一整天——
+从 11-24 加数组支持到 11-25 补上这一步。
+
+修法：抽出 `missingModules(rules, srcDir)`，正常模式与 selftest 都调它。
+一处可写，改一处就两处都改。
+
+**发现面也补了**：`verify-dtt.mjs` 在仓根，不叫 `check-*`，于是它连同它的 `--selftest`
+一直落在发现面外。它在 `SIGN-OFF-DTT.md` 里被逐字引用，改名要重签，所以不改名——
+改发现面。现在 gate 报「3 条判据（scripts 2 + 根 1），6 步（其中 3 步是 selftest）」。
+
+**判据**：
+
+```bash
+node scripts/gate.mjs          # rc=0，3 条判据 6 步
+```
+
+**反例**（都跑过）：
+
+| 喂进去的 | 期望 | 实测 |
+|---|---|---|
+| `scripts/check-zzz-canary.mjs` 返回 1 | rc=1 并点名 | FAIL 并点名，gate_rc=1 |
+| 仓根 `verify-zzz-canary.mjs` 返回 1 | rc=1 并点名 | FAIL 并点名，gate_rc=1 |
+| 把 `check-doc-accuracy` 的 `check()` 改成恒返回 `[]` | selftest 必红 | 红在「配置小节里写了已删的键 strict 必须红（得 false）」，gate_rc=1 |
+
+第三条最重要：它证明的不是「判据现在没报错」，而是「判据还会报错」。
+
 ## 0.2.1 · 2026-11-25 · 签名清理：幂等 + 增量
 
 **一 事故：会话撑到 377MB，pi 1ms 就失败。**

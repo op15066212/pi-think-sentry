@@ -537,9 +537,12 @@ node bin/status.mjs --json
 ## 判据
 
 ```bash
-npm run verify                                                    # rc=0（npm test && gate）
-node --experimental-strip-types scripts/check-rules-coverage.mjs   # 7 条规则，0 缺口
-node verify-dtt.mjs                                               # 元理论节齐、四件齐
+npm run verify     # rc=0（246 条测试 + 6 个 probe + gate 4 步）
+node scripts/gate.mjs
+#   gate 靠 glob 发现 scripts/check-*.mjs，不靠登记。
+#   每条判据走两步：先 --selftest（证明它会红），再正常模式（证明现在的盘面没红）。
+#   selftest 红了就不跑正常模式——判据本身坏了，它给的「0 处对不上」没有意义。
+#   反例：往 scripts/ 塞一个返回 1 的 check-zzz-canary.mjs，gate 必须 rc=1 并点名。
 ```
 ### 配置的「读进来」与「接到判据上」是两件事
 
