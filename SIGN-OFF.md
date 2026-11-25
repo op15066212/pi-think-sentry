@@ -1031,3 +1031,64 @@ grep -nE "6 条规则|[0-9]+ 条规则" SETTINGS.md README.md → 零命中
 4. pi-escape-guard 未改动，仍为复核方已签的 `861291d7`（HEAD `7d8ab5d`）。
 
 | 修改方 | 9d80afea | **已签**：`2ba5d1e3acf59280b16207d72888193a`、npm run verify rc=0（246/246 + gate 10 步 5 selftest）；selftest 四条件改自造样本，与工作区解耦（污染时 selftest 仍绿、正常模式红）、取前取后 0 行 | 2026-11-25T15:41:31Z |
+
+## 重签（2026-11-25T15:46Z，selftest 四条样本改成自造之后）
+
+### 身份（`node bin/fingerprint.mjs --head` 现取，采样 2026-11-25T15:42:15Z）
+
+| 项 | 值 |
+| --- | --- |
+| 总指纹 | `2ba5d1e3acf59280b16207d72888193a` |
+| 口径 | HEAD `754a464` |
+| 文件数 / 总字节 | 108 / 591,973（上一版 108 / 591,434） |
+| 取前取后 git status | 0 行 / 0 行 |
+
+上一版 `bac3dd27` 作废。
+
+### 判据（整条命令的 rc）
+
+```
+npm run verify → rc=0   tests 246，gate 5 条判据 10 步（5 步 selftest）0 失败
+check-rules-coverage → 7 条规则，缺口 0 个
+```
+
+### 复核方自己跑的关键一件：自造样本与工作区是否真解耦
+
+```
+基线                           selftest rc=0   正常模式 rc=0
+造 src/features/zzz-reviewer-probe.ts
+                               selftest rc=0   正常模式 rc=1
+  正常模式输出： 红  features/zzz-reviewer-probe.ts 存在，但 MODULES 里没有它
+                  红  features/zzz-reviewer-probe.ts 没有任何 RULES 条目点名
+删掉                           selftest rc=0   正常模式 rc=0
+status 0 行
+```
+
+改动前同一次污染会让第 ④ 条红（见本文件上一节）。现在第 ④ 条不动，红的是正常模式——
+所以「判据自身对不对」与「此刻盘上有什么」确实是两件事了，这是实测，不是从注释读的。
+
+另：正常模式那次给出两条红，第二条（没有任何 RULES 条目点名）来自另一条覆盖率判据，
+说明同一个未登记文件被两处盯住。这是修改方没提的一处，复核方另看到。
+
+### 四条样本的代码核对（复核方逐行看过）
+
+```
+names = ["alpha", "beta"];  files = ["alpha.ts", "beta.ts"];
+② diffModulesAndFeatures([...names, "gamma"], files)
+③ diffModulesAndFeatures(names, [...files, "gamma.ts"])
+① 仍读盘，但塞的是「features/不存在的模块.ts」——与工作区状态无关
+```
+
+### 签字
+
+| 角色 | 会话 | 状态 | 时刻 |
+| --- | --- | --- | --- |
+| 复核方 | pi 插件2 `f15be404` | | 复核方 | f15be404 | **已签**：`2ba5d1e3acf59280b16207d72888193a`、npm run verify rc=0；246/246；gate 10 步；四条样本已自造：造未登记文件后 selftest rc=0、正常模式 rc=1 并点名两处，删掉后均 rc=0、取前取后 0 行 | 2026-11-25T15:44:06Z | | 2026-11-25T15:46Z |
+| 修改方 | pi 插件 `9d80afea` | **已签**：`2ba5d1e3`、verify rc=0、local = remote | 2026-11-25T15:42Z |
+
+### 未验证项
+
+1. `signoff-commits.mjs --strict` 仍报历史行不完整，按定论不回填、不进 gate。
+2. 拦截门槛不判「散着写的转义」，已一致记为已知缺口。
+3. 注释与文档里写死数量这一类仍无机器判据。
+4. pi-escape-guard 未改动，仍为复核方已签的 `861291d7`（HEAD `7d8ab5d`）。
