@@ -66,6 +66,13 @@ export async function check(dir = here) {
   // 与实现（algo/xxx.ts 或 features/yyy.ts）。只允许一个字符串时，
   // 实现那一侧就无法被点名，于是「文件存在但规则表里没有它的条目」永远抓不到。
 
+  // 下面这条与上面 diffModulesAndFeatures 是**两条独立的网**，查的不是同一件事
+  // （2026-11-25，pi 插件2 造污染时看到两条红，指出会被误读成重复报）：
+  //   上面问：config.ts 的 MODULES 里，有没有这个文件的位置？
+  //   下面问：有没有任何一条 RULES 判据在用这个文件？
+  // 一个没登记的 features/zzz.ts 会同时触发两条，那不是重复报，是两种失效同时发生——
+  // 配置里没位置，而且没有任何判据在用它。别把第二条当重复删掉；
+  // 反例：把下面这段删了，只留 MODULES 对拍，一个「登记了但没有任何判据在用」的文件就再也不会红。
   const named = new Set(mods({ module: RULES.flatMap(mods) }).map((m) => m.replace(/^features\//, "")));
   for (const f of features) if (!named.has(f)) problems.push("features/" + f + " 没有任何 RULES 条目点名");
 
