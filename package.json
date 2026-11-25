@@ -14,7 +14,7 @@
     "e2e": "node --experimental-strip-types scripts/e2e-real.mjs",
     "status": "node bin/status.mjs",
     "kgram": "node bin/probe-kgram.mjs",
-    "verify": "npm test && node scripts/gate.mjs"
+    "verify": "npm test && node bin/fingerprint.mjs --selftest && node scripts/gate.mjs"
   },
   "pi": {
     "extensions": [
