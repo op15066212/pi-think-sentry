@@ -10,7 +10,8 @@ import inject from "./features/inject.ts";
 import bindingMod from "./features/binding.ts";
 import { clearRejects } from "./values.ts";
 
-// 五个功能模块，一个功能一个单例。顺序就是配置文件的顺序。
+// 功能模块，一个功能一个单例。模块清单见下面 MODULES，顺序就是配置文件的顺序。
+// **不写数量**：原来写「五个」，实际已经是七个。数量会变，指向不会变。
 // 加功能只需在这里多一行，读写与兜底不用动。
 export const MODULES = [intercept, dup, lang, signature, strip, inject, bindingMod];
 

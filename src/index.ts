@@ -1,5 +1,5 @@
 // pi 扩展接线：只做分发。
-// 五个功能各自一个模块（src/features/），配置读写集中在 src/config.ts。
+// 功能各自一个模块（src/features/，清单见 src/config.ts 的 MODULES），配置读写集中在 src/config.ts。
 // 这里没有业务判断，只有「哪个事件交给哪个模块」。
 import fs from "node:fs";
 import path from "node:path";
