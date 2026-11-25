@@ -50,8 +50,6 @@ export function badLine(line) {
 export function check(files) {
   const problems = [];
   for (const f of files) {
-    // 跳过自己：这个文件里必然写着坏样本，那是判据的输入不是判据的错误。
-    if (path.basename(f) === "check-rc-pipe.mjs") continue;
     const text = fs.readFileSync(f, "utf8");
     const rel = path.relative(here, f).split(path.sep).join("/");
     let inFence = false;

@@ -64,8 +64,14 @@ if (process.argv.includes("--selftest")) {
   process.exit(ok ? 0 : 1);
 }
 
-const problems = await check();
-for (const p of problems) console.log("红  " + p);
+// isMain 保护（2026-11-25）：本文件导出 check()，设计上就是给别人复用的。
+// 没有保护时 import 它会连带跑完主流程并 exit，复用者拿不到返回值。
+const norm = (x) => String(x || "").replace(/\\/g, "/");
+const isMain = !!process.argv[1] && norm(fileURLToPath(import.meta.url)) === norm(process.argv[1]);
+if (isMain) {
+  const problems = await check();
+  for (const p of problems) console.log("红  " + p);
 const { RULES } = await import(pathToFileURL(path.join(here, "src", "meta.ts")).href);
 console.log("check-rules-coverage: " + RULES.length + " 条规则，缺口 " + problems.length + " 个");
-process.exit(problems.length === 0 ? 0 : 1);
+  process.exit(problems.length === 0 ? 0 : 1);
+}
