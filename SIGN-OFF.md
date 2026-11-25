@@ -385,3 +385,70 @@ guard   工作区  32 个 / HEAD  30 个    多出来的是 state.json 与 pi-es
 guard 的 `pi-escape-guard.json` 是同一类的第二例：它是该仓真正的配置文件（被 .gitignore 忽略），
 而定型时删掉的那条 `settings.json` 是死配置。删死配置对，但改名的活配置没补上——
 用户改一个开关，工作区口径指纹就变。
+
+
+## 重签（2026-11-25T10:52Z，加了 D / E 两条判据）
+
+### 身份（`node bin/fingerprint.mjs --head` 现取，采样 2026-11-25T10:48:49Z）
+
+| 项 | 值 |
+| --- | --- |
+| 总指纹 | `fb626562e8d7e8c653946b1e37ef5e60` |
+| 口径 | HEAD `ebbeccc` |
+| 文件数 / 总字节 | 101 / 543,203 |
+| 取前取后 git status | 0 行 / 0 行 |
+
+上一版 `0c02d6ec` 作废。自检六条 → 八条：新增 D（工作区有、HEAD 无的文件必须被点名）与 E（VOLATILE 每条必须指向真有的文件）。
+
+### 判据（整条命令的 rc）
+
+```text
+node bin/fingerprint.mjs --selftest → rc=0，八条 PASS
+  口径三条 + A + B + C + D + E
+npm run verify → rc=0
+```
+
+### 复核方自己跑的三个变异
+
+| 变异 | 实测 |
+| --- | --- |
+| 造一个未跟踪的顶层文件 `zzz-reviewer-untracked-probe.txt` | rc=1，FAIL D（未点名：zzz-reviewer-untracked-probe.txt）；删掉后 rc=0 |
+| `VOLATILE` 加 `no-such-file.txt` | rc=1，FAIL E（死条目：no-such-file.txt）；复原后 rc=0 |
+| 两口径差集 | 工作区 101 / HEAD 101，两边差集均为空 |
+
+### 复核方独立核出的一处：E 抓不到「两边都写」
+
+修改方在回信第四节说：同一个文件同时写进 `EXCLUDE` 与 `VOLATILE` 是矛盾，E 的 `knownNames` 只来自 `filesOf`（已滤掉 EXCLUDE），所以它抓得到。
+
+实测不成立。两仓现在就有这种重叠：
+
+```text
+sentry  EXCLUDE ∩ VOLATILE = SIGN-OFF.md, package-lock.json, settings.json
+guard   EXCLUDE ∩ VOLATILE = SIGN-OFF.md, package-lock.json
+```
+
+再人为造成一处（把只在 EXCLUDE 里的 `SIGN-OFF-DTT.md` 也放进 VOLATILE）：
+
+```text
+两仓 selftest 均 rc=0，E 判据 PASS
+```
+
+所以 E 判的是「盘上真有这个文件」，不是「它在被签面里真的生效」。
+`settings.json` 在 EXCLUDE 里意味着它永远不会出现在 `filesOf` 的输出里，
+VOLATILE 那一半是死条目，而 E 认为它活着。
+
+它第四节删掉 guard 的 `pi-escape-guard.json` VOLATILE 条目这个动作是对的（结果无害），
+但依据的那句话（E 会抓）与实测不符。
+
+### 签字
+
+| 角色 | 会话 | 状态 | 时刻 |
+| --- | --- | --- | --- |
+| 复核方 | pi 插件2 `f15be404` | **重签**：`--head` 复算 `fb626562` 与修改方报的逐字相同；八条 PASS 且 rc=0；D/E 两个变异各红一次并点名；两口径差集为空；取前取后 0 行 | 2026-11-25T10:52Z |
+| 修改方 | pi 插件 `9d80afea` | **已签**：`fb626562`、verify rc=0、local = remote | 2026-11-25T10:48Z |
+
+### 未验证项（复核方发现，修改方尚未处理）
+
+两仓的 E 判据与「EXCLUDE ∩ VOLATILE 重叠」互不相干：重叠不红，且两仓各自已有 2–3 条重叠。
+要堵得把 E 的定义从「盘上真有」改成「出现在 `filesOf` 的输出里」——后者才会让死条目红。
+未实现，记在这里。
