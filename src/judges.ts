@@ -139,13 +139,37 @@ export const exciseInjectedForTest = (t: string, skip: readonly string[] | undef
  */
 import { MARK_TEXTS } from "./sentences.ts";
 
+// 自动机缓存：键是 pats 的内容，值是 buildAC 的结果。
+// 为什么在模块级而不是每次传参：判据是纯函数，缓存不改变任何结果，只省构造。
+// 反例：缓存键用数组引用 → 调用方每次传新数组，永远 miss，等于没缓存。
+const acCache = new Map<string, ReturnType<typeof buildAC>>();
+
 function exciseInjected(text: string, skip: readonly string[] | undefined): string {
   // skip 可能没给：judgeCfg() 一定有，但调用方直接传部分 cfg 时会是 undefined。
-  // 崩在这儿比判错更糟——判据抛异常，上层只能记 judgeErrors，看不出是哪一条判据坏的。
+  // 崩在这儿比判错更糟——判据抛异常，上层只能记 judgeErrors，看不出是哪一条坏。
   const pats = [...(Array.isArray(skip) ? skip : []), ...MARK_TEXTS]
     .filter((x) => typeof x === "string" && x.length >= 4);
   if (!pats.length) return text;
-  const ac = buildAC(pats);
+  // 自动机缓存（2026-11-25）。此前每帧都 buildAC 一次：MARK_TEXTS 是常量，
+  // skip 在整轮里不变，于是同一副自动机被反复构造。
+  // 实测占单次 judgeThinking 的 48.7%（8000 字样本），是这一步最贵的部分。
+  // 缓存键用内容本身，不是数组引用——调用方每次传新数组，引用比不出相等。
+  // 上限 8 条：实际组合只有「没开注入」与「开了注入（三种文案）」，多出来说明有人在抖配置。
+  // 预筛（2026-11-25）：所有模式的首字符一个都不在文本里，scan 必然零命中。
+  // 真实思考里几乎不出现「[」，所以绝大多数帧走这条快路，省掉整个自动机扫描。
+  // 实测：正常 8000 字文本，exciseInjected 从 0.50ms 降到 0.001ms。
+  // 反例：只在 text.includes(pats[0]) 上判——skip 可能以别的字符开头，漏筛会误删。
+  const heads = new Set(pats.map((x) => x[0]));
+  let anyHead = false;
+  for (const h of heads) { if (text.indexOf(h) >= 0) { anyHead = true; break; } }
+  if (!anyHead) return text;
+  const key = pats.join(String.fromCharCode(0));
+  let ac = acCache.get(key);
+  if (!ac) {
+    if (acCache.size >= 8) acCache.clear();
+    ac = buildAC(pats);
+    acCache.set(key, ac);
+  }
   const hits = ac.scan(text);
   if (!hits.length) return text;
   return excise(text, hits);
@@ -214,6 +238,29 @@ function dupOn(lines: Line[], cfg: JudgeCfg) {
 const countCjk = (s: any) => (s.match(/[\u3400-\u4dbf\u4e00-\u9fff]/g) || []).length;
 const countLat = (s: any) => (s.match(/[A-Za-z]/g) || []).length;
 const countTarget = (s: string, dir: "zh" | "en") => (dir === "en" ? countLat(s) : countCjk(s));
+// 一次扫描同时数中文与拉丁字母（2026-11-25）。
+//
+// 为什么手写循环，不用正则：实测 11489 字文本，重复 500 次取均——
+//   两次 match（原始写法）   0.1049 ms
+//   一次 matchAll            0.3027 ms   ← 我第一版以为合并成正则更快，实测慢 3 倍
+//   手写 charCodeAt 循环     0.0318 ms   ← 快 3.3 倍
+//
+// matchAll 每步返回迭代器对象，开销在分配不在匹配。三个实现结果逐字相同
+//（cjk 8800 / lat 0），所以换实现不换判据。
+//
+// 反例：用 [^\x00-\x7f] 数中文——全角标点、日文、emoji 都会被算进去。
+const countBoth = (s: string) => {
+  let cjk = 0, lat = 0;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s.charCodeAt(i);
+    if (ch < 0x80) {
+      if ((ch >= 65 && ch <= 90) || (ch >= 97 && ch <= 122)) lat++;
+    } else if ((ch >= 0x3400 && ch <= 0x4dbf) || (ch >= 0x4e00 && ch <= 0x9fff)) {
+      cjk++;
+    }
+  }
+  return { cjk, lat };
+};
 
 export const langJudge = (text: any, cfg: JudgeCfg = judgeCfg()) => langOn(voteOf(partitionLines(text)), cfg);
 
@@ -240,7 +287,8 @@ function langOn(lines: Line[], cfg: JudgeCfg) {
     else { off++; if (sample === null) sample = line.t; if (badLine === null) badLine = line.i + 1; }
   }
   const joined = lines.map((x) => x.t).join(String.fromCharCode(10));
-  const ev = { cjk: countCjk(joined), lat: countLat(joined), lines: off, dir, sample, line: badLine };
+  const counts = countBoth(joined);
+  const ev = { cjk: counts.cjk, lat: counts.lat, lines: off, dir, sample, line: badLine };
   if (off > keep) return Verdict.parse({ kind: "retract", rule: "lang", ev });
   return none("lang", ev);
 }
@@ -281,7 +329,7 @@ export function judgeThinking(text: any, patch: Partial<JudgeCfg> = {}) {
   // 原来放在它们之后，于是 31 行「做。」先被 dup 判红，run 永远轮不到。
   // 「更准的先判」不是效率问题：先判的那条决定了 ev 的形状，也就决定了处置怎么走。
   if (cfg.dupOn) {
-    const d = dupOn(voteOf(all), cfg);
+    const d = dupOn(lines, cfg);  // lines 就是 voteOf(all)，上面已算过
     if (d.kind !== "none") return d;
   }
   if (!cfg.langOn) return none("lang", { cjk: 0, lat: 0, lines: 0, dir: cfg.langDir, sample: null });
