@@ -640,6 +640,38 @@ node bin/signoff-commits.mjs --strict   # 再要求每行都有完整 32 位指�
 这类错机器验不了（我不能自动检查自己那句话里的 commit 是不是签过的），
 能做的是把表读成一列，读的人对着它说。
 
+### 「已推」这句话要落到远端，不是落到本地
+
+`git status` 干净、`git log` 有那一笔，都只说明本地。推送被打断过一次之后，
+本地有提交、远端没有，这两条同时成立——2026-11-25 复核方就遇到过：
+他签好的提交没推出去，补推之后才成交（我看到的 `f860618` 是第二次推的结果）。
+
+判据是问**这个提交在不在远端的历史里**，不是问「推了几次」——推几次是过程，在不在是结果：
+
+```bash
+git fetch -q origin
+git fetch -q origin
+out=$(git branch -r --contains <提交> 2>/dev/null)
+case "$out" in *origin/main*) echo "在远端";; *) echo "不在";; esac
+```
+
+**结论要看分支列表里有没有 `origin/main`，不能看 git 的退出码。** 实测：
+`git branch -r --contains` 遇到找不到的提交时也可能返回 0，那时结论是「没有」，不是「有」。
+取裸 rc 会把它读成「已推」。
+
+这里刻意不写成 `... | grep -q origin/main; echo rc=$?`：本仓 `check-rc-pipe` 会把这种形状判红。
+那不是误伤——这种写法分不清「我故意要管道末端的 rc」和「我把 git 的 rc 当成 grep 的了」，
+所以规定一律不写。判据宁严，改写法比改判据便宜。
+
+两方向都实测过：
+
+```
+好样本  3b62f70 / f860618 / cd718c9   rc=0
+坏样本  本地空提交 a5a5289（未推）     rc=1
+```
+
+坏样本要造得出来，否则这条判据是恒真绿：`git commit --allow-empty -m probe`，
+测完 `git reset --mixed HEAD~1` 收回（空提交，工作区不变；`--hard` 会被 guardrails 拦，也确实不该用）。
 ### 签字行由脚本生成，三道检查
 
 ```bash

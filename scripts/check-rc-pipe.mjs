@@ -41,7 +41,11 @@ export function badLine(line) {
   // 只认单个 |；|| 是逻辑或，"|" 在引号里也不算（"a|b" 是字符串）。
   const stripped = line.replace(/"[^"]*"/g, "").replace(/'[^']*'/g, "");
   const hasPipe = /(^|[^|])\|([^|]|$)/.test(stripped);
-  // markdown 表格的 | 不算管道：以 | 开头或 | 结尾的行跳过。
+  // markdown 表格的 | 不算管道：表格行不是可执行示例。
+  // 2026-11-25 补实现：注释一直这么写，代码里没有这一行——表格行此前只是「恰好」落在
+  // 围栏外才没被扫到。我自己改文档时把围栏弄错位，733 行那张表格立刻被当成示例判红。
+  // 判据靠「碰巧在对的位置」是恒假绿，补上。
+  if (/^\s*\|/.test(line)) return false;
   if (!hasPipe) return false;
   // $? 或 ${PIPESTATUS 混用也算：判据是「同一行里取退出码」。
   return /\$\?/.test(line) || /\$\{PIPESTATUS/.test(line);
@@ -84,7 +88,9 @@ if (isMain && process.argv.includes("--selftest")) {
     ["|| 是逻辑或不是管道", 'cd x || exit 1; echo $?', false],
     ["引号里的 | 不算", 'echo "a|b"; echo $?', false],
     ["注释行不算", '// node x | tail; echo $?', false],
-    ["markdown 表格不算", '| a | b |', false],
+    // 2026-11-25：原来这条样本是 '| a | b |'，里面没有 $?——任何实现都对它返回 false，
+    // 恒真绿。真正的表格行会把反例写在某一格里，含 $?。
+    ["markdown 表格里有 $? 也不算", '| `check-rc-pipe.mjs` | 挡什么 | `node x \\| tail; echo rc=$?` |', false],
     ["重定向后取 rc 不算", 'node x > /tmp/o 2>&1; echo $?', false],
   ];
   const cases = [
