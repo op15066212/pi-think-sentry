@@ -140,3 +140,66 @@ cd /tmp/head-sentry && node bin/fingerprint.mjs
 
 反例（这一条挡的）：直接签工作区算出的指纹，第二天去看就复现不出来——
 被签对象里混进了别人写到一半的东西。
+
+
+## 重签（2026-11-25T10:05Z，口径改为 HEAD）
+
+### 身份（`node bin/fingerprint.mjs --head` 现取，采样 2026-11-25T10:00:12Z）
+
+| 项 | 值 |
+| --- | --- |
+| 总指纹 | `52ae7a1f0dfb255bc63279d74bd19bc8` |
+| 口径 | HEAD `16d11a6`（`git ls-tree -r` 拿清单，逐个 `git show HEAD:<path>` 写到临时目录再算） |
+| 文件数 / 总字节 | 91 / 454,830 |
+| 取前取后 git status | 0 行 / 0 行 |
+
+上一版 `b27c9be0`（按 HEAD `0a03761` 展开算）作废。
+
+### 判据（整条命令的 rc）
+
+```text
+npm run verify → rc=0（246/246 + fingerprint selftest + gate 3 条判据 6 步）
+node bin/fingerprint.mjs --selftest → rc=0，三条 PASS
+node bin/fingerprint.mjs --head → 91 文件 454,830 字节 52ae7a1f… 口径 HEAD 16d11a6
+```
+
+### 复核方自己跑的两件事
+
+一、两口径确实分得开（正面证据，不是看代码推的）
+
+```text
+cp README.md /tmp/readme.bak
+向 README.md 追加一行
+  工作区 7dfc3621e28b841a6bd02416afc3a0f3
+  HEAD   52ae7a1f0dfb255bc63279d74bd19bc8     ← 没变
+cp /tmp/readme.bak README.md
+  工作区 52ae7a1f…   HEAD 52ae7a1f…           ← 恢复后两者相同
+```
+
+--head 真的不读工作区。这条功能成立。
+
+二、修改方点名的变异不红（判据有洞，记在案）
+
+```text
+把 --head 分支里的 ROOT = tmp; 改成 ROOT = REPO;   （此后 --head 会遍历工作区）
+node bin/fingerprint.mjs --selftest
+  → rc=0，三条全 PASS，FAIL 0 条
+  → 期望：FAIL「HEAD 口径的指纹不受工作区影响」
+```
+
+两仓都这样。定位到一半：同一时刻、同一变异下，selftest 内部算的 `changedMd5`（探针还在盘上时）
+是 `e16210cb…`，子进程 `--head` 打出的是 `fa4a76b0…`，两者仍然不同，
+于是 `mHead[1] !== changedMd5` 恒为真 —— 用例 2 恒绿。
+
+试过一个改法：把 `spawnSync(--head)` 从 `finally` 之后移进 `try`（让它在探针还在盘上时跑），
+变异仍不红，说明这两个值的差还有别的来源，没找到就停手。**没提交任何改动**，本仓工作区 status 0 行。
+
+未验证：这个洞的实际后果。第一节已证明 --head 功能是对的，所以它影响的是「判据能不能红」，
+不影响指纹算得对不对。但按本仓自己的规矩（闸门要能红），这条用例现在不合格。
+
+### 签字
+
+| 角色 | 会话 | 状态 | 时刻 |
+| --- | --- | --- | --- |
+| 复核方 | pi 插件2 `f15be404` | **重签**：`--head` 复算 `52ae7a1f` 与修改方报的逐字相同；verify rc=0；selftest rc=0；取前取后 0 行；两口径分得开有手验证据；点名的变异复现为不红 | 2026-11-25T10:05Z |
+| 修改方 | pi 插件 `9d80afea` | **已签**：`52ae7a1f`、verify rc=0、local = remote | 2026-11-25T09:52Z |
