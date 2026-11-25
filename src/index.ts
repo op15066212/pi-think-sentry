@@ -12,7 +12,7 @@ import { templateKeyOf } from "./verdict.ts";
 import strip from "./features/strip.ts";
 import inject from "./features/inject.ts";
 import intercept, { SAY_BLOCK, SAY_LANG } from "./features/intercept.ts";
-import { planSignatureCleanup } from "./algo/signature.ts";
+import { planSignatureCleanup, planSignatureCleanupIncremental, type CleanupState } from "./algo/signature.ts";
 
 export { SAY_BLOCK, SAY_LANG };
 
@@ -309,6 +309,9 @@ export default async function installGuard(pi: any) {
   // 这条立刻被 state.test.ts 抓到（BBB 的 blocked 会变成 2）。
   for (const k of Object.keys(stats)) (stats as Record<string, any>)[k] = Number.isFinite(saved[k]) ? saved[k] : 0;
 
+  // 签名清理的水位：只处理「刚过期」的那几条，不每轮把历史重数一遍（2026-11-25）。
+  // 与 stats 一样按会话归零：换会话时 entries 换了一套，旧水位没有意义。
+  let sigState: CleanupState = { boundary: 0 };
   let lastEntryId: any = null;
   // 本次回答中途是否判红过。判红发生在工具调用前（回答还没结束），到 turn_end 时模型
   // 往往已经改好了，那时再看 lastV 永远是 none——所以必须记「曾经」，不能记「最后」。
@@ -319,6 +322,7 @@ export default async function installGuard(pi: any) {
     lastThink = "";
     lastV = null;
     lastEntryId = null;
+    sigState = { boundary: 0 };
     sawRed = false;
     trace("hook", { h: "before_agent_start" });
   });
@@ -532,7 +536,13 @@ export default async function installGuard(pi: any) {
         // getEntries() 是唯一能拿到历史 entry 的接口；context_edit 的 targetId
         // 能指向任意 entry，所以清历史不需要改 jsonl（B1 边界不变）。
         const all: any[] = (ctx as any)?.sessionManager?.getEntries?.() ?? [];
-        const edits = planSignatureCleanup(all, c.signature.keepTurns);
+        const all: any[] = (ctx as any)?.sessionManager?.getEntries?.() ?? [];
+        // 增量版（2026-11-25）：幂等修好后第二轮起产出恒为 0，全量扫 26000 条要 4.4ms，
+        // 每轮都白扫。水位停在「上一次的过期区右端」，跨会话归零（见 sigState）。
+        // 与全量版等价，判据在 test/signatureIncremental.test.ts。
+        const inc = planSignatureCleanupIncremental(all, c.signature.keepTurns, sigState);
+        sigState = inc.state;
+        const edits = inc.edits;
         for (const ed of edits) entries.push(ed);
         if (edits.length) trace("hook", { h: "turn_end", phase: "signature", cleaned: edits.length });
       } catch (e: any) {

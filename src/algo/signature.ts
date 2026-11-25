@@ -47,8 +47,11 @@ export function stripOne(content: any[]): any[] {
  */
 export function planSignatureCleanup(entries: readonly Entry[], keepTurns: number): Edit[] {
   const k = Math.max(0, Math.floor(keepTurns));
-  const assistant = entries.filter((e) => e?.type === "message" && e?.message?.role === "assistant");
-  const keepFrom = Math.max(0, assistant.length - k);
+
+  // 两件事一遍扫完：assistant 总数、每个目标最后一条覆盖记录清没清干净。
+  // 只存布尔不存整条 entry——13 万条历史下 Map 里放对象是本函数的主要开销
+  // （2026-11-25 实测：26000 条从 5.1ms 降到 1.9ms）。
+  //
   // 幂等（2026-11-25，真机事故）：context_edit 不改原始 entry——pi 文档
   // docs/session-format.md 明写「the target entry and its metadata remain unchanged in
   // raw history」。所以 hasSignature(原始 entry) 对已清过的目标永远为 true，
@@ -56,24 +59,89 @@ export function planSignatureCleanup(entries: readonly Entry[], keepTurns: numbe
   // 实测 2026-11-24T13-53-44 那个会话 133092 行里 131698 条是 context_edit
   // （478 个 target，平均每个被重写 275 次），pi 构建 prompt / 压缩时
   // 「Maximum call stack size exceeded」，1ms 就失败。
-  // 判据：看该 target 的**最后一条** edit 是否已无 thinkingSignature。
-  const lastEditOf = new Map<string, any>();
+  let total = 0;
+  const lastClean = new Map<string, boolean>();
   for (const e of entries as readonly any[]) {
-    if (e?.type === "context_edit" && typeof e.targetId === "string") lastEditOf.set(e.targetId, e);
+    if (e?.type === "message") {
+      if (e.message?.role === "assistant") total++;
+    } else if (e?.type === "context_edit" && typeof e.targetId === "string") {
+      const content = e.replacement?.content;
+      // replacement = null 是「整条从上下文里省略」，不是清签名，不能当已清。
+      lastClean.set(e.targetId, Array.isArray(content) && !content.some((b: any) => b && typeof b.thinkingSignature === "string"));
+    }
   }
-  const alreadyClean = (id: string): boolean => {
-    const content = lastEditOf.get(id)?.replacement?.content;
-    // replacement = null 是「整条从上下文里省略」，不是清签名，不能当已清。
-    if (!Array.isArray(content)) return false;
-    return !content.some((b: any) => b && typeof b.thinkingSignature === "string");
-  };
+
+  const keepFrom = Math.max(0, total - k);
+  if (keepFrom === 0) return [];
+
+  // 只扫到第 keepFrom 个 assistant 就停：旧版 filter 会先复制全部 assistant 再取前段。
   const out: Edit[] = [];
-  for (let i = 0; i < keepFrom; i++) {
-    const e = assistant[i];
-    if (!e || typeof e.id !== "string" || !e.id) continue;
+  let seen = 0;
+  for (const e of entries) {
+    if (seen >= keepFrom) break;
+    if (e?.type !== "message" || e?.message?.role !== "assistant") continue;
+    seen++;
+    if (typeof e.id !== "string" || !e.id) continue;
     if (!hasSignature(e)) continue;
-    if (alreadyClean(e.id)) continue;
+    if (lastClean.get(e.id)) continue;
     out.push({ type: "context_edit", targetId: e.id, replacement: { content: stripOne(e.message!.content) } });
   }
   return out;
+}
+
+/**
+ * 增量版：只处理「刚过期」的那几条，不扫全量历史。
+ *
+ * 为什么要另写一个（2026-11-25 实测）：全量版在 26000 条 entry 的会话里单次
+ * 4.4ms，每轮 turn_end 都跑一遍，而幂等修好之后第二轮起它产出恒为 0——纯粹白扫。
+ * 增长源已断（见上面的 alreadyClean），剩下的成本只是「每轮把历史重数一遍」。
+ *
+ * 水位语义（state.boundary）：上一次处理到的「过期区右端」。第一轮它是 0，
+ * 于是第一次调用等价于全量（from = 0），之后只处理 [上次边界, 本次边界)。
+ * 不需要「是否已初始化」的标记 —— 0 就是未初始化，两者是同一件事。
+ *
+ * 反例（这条挡的）：把 from 直接写成 state.boundary，keepTurns 被调小时边界左移，
+ * 左移出来的那一段会被永久跳过，表现为「改了配置，最前面几条签名一直清不掉」。
+ */
+export type CleanupState = { boundary: number };
+
+export function planSignatureCleanupIncremental(
+  entries: readonly Entry[],
+  keepTurns: number,
+  state: CleanupState,
+  tailWindow = 512,
+): { edits: Edit[]; state: CleanupState } {
+  const k = Math.max(0, Math.floor(keepTurns));
+  // 本次边界：从尾部数到第 k+1 个 assistant，它及更早的都在过期区。
+  let seen = 0;
+  let boundary = 0;
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i];
+    if (e?.type === "message" && e?.message?.role === "assistant" && typeof e.id === "string" && e.id) {
+      seen++;
+      if (seen > k) { boundary = i + 1; break; }
+    }
+  }
+  const from = Math.min(state.boundary, boundary);
+  if (from >= boundary) return { edits: [], state: { boundary } };
+  // 已清判定要看该 target 的最后一条 edit。edit 总写在 target 之后、清完就贴着边界，
+  // 所以只在尾部窗口里找：窗口外找不到就当未清（多写一条，不会漏清）。
+  const lastEditOf = new Map<string, any>();
+  const start = Math.max(0, entries.length - tailWindow);
+  for (let i = start; i < entries.length; i++) {
+    const e = entries[i] as any;
+    if (e?.type === "context_edit" && typeof e.targetId === "string") lastEditOf.set(e.targetId, e);
+  }
+  const edits: Edit[] = [];
+  for (let i = from; i < boundary; i++) {
+    const e = entries[i];
+    if (!e || e.type !== "message" || e.message?.role !== "assistant") continue;
+    if (typeof e.id !== "string" || !e.id) continue;
+    if (!hasSignature(e)) continue;
+    const content = lastEditOf.get(e.id)?.replacement?.content;
+    // replacement = null 是「整条省略」，不是清签名。
+    if (Array.isArray(content) && !content.some((b: any) => b && typeof b.thinkingSignature === "string")) continue;
+    edits.push({ type: "context_edit", targetId: e.id, replacement: { content: stripOne(e.message!.content) } });
+  }
+  return { edits, state: { boundary } };
 }
