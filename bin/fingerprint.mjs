@@ -265,8 +265,14 @@ if (SELFTEST) {
   const seenExt = new Set();
   for (const d of DIRS) for (const f of raw(path.join(REPO, d))) seenExt.add(path.extname(f));
   const unhandledExt = [...seenExt].filter((e) => e && !EXTS.has(e));
-  const FILE = ["package.json", "tsconfig.json", "README.md", "SIGN-OFF.md"];
-  const ALWAYS = { "package.json": "package.json", "tsconfig.json": "tsconfig.json", "README.md": "README.md", "SIGN-OFF.md": "SIGN-OFF.md" };
+
+  // ===== 判据 C：EXCLUDE 里有没有写了却不生效的 =====
+  // isExcluded 只在顶层那一层循环里用；DIRS 内 walk 出来的文件一律不过滤。
+  // 所以往 EXCLUDE 里写 "src/index.ts" 什么也不做——但读代码的人会以为它生效了。
+  // 这比「缩面」更难发现：缩面至少文件数会掉，死配置连数都不动，A 判据也照样绿。
+  // 2026-11-25，pi 插件2 实测 "src" 与 "src/index.ts" 两种写法后给的出现形状。
+  const topNames = new Set(fs.readdirSync(REPO, { withFileTypes: true }).map((e) => e.name));
+  const deadExcl = [...EXCLUDE.keys()].filter((k) => !topNames.has(k.endsWith("/") ? k.slice(0, -1) : k));
 
   const cases = [
     ["写了探针，工作区口径的指纹必须变", changed !== total && changed !== ""],
@@ -274,6 +280,7 @@ if (SELFTEST) {
     ["探针文件已按原字节恢复", restored],
     ["A 判据：git HEAD 里每个文件都被签或被 EXCLUDE 点名（未签：" + missed.slice(0, 4).join(", ") + (missed.length > 4 ? " …共 " + missed.length : "") + "）", missed.length === 0],
     ["B 判据：目录里出现的扩展名都被 EXTS 处理（未处理：" + unhandledExt.join(", ") + "）", unhandledExt.length === 0],
+    ["C 判据：EXCLUDE 每条都指向盘上真有的东西（不生效：" + deadExcl.join(", ") + "）", deadExcl.length === 0],
   ];
 
 
