@@ -675,3 +675,70 @@ rc=2（fetch 失败）这一支**未验**：造一个取不到的远端要改仓
 
 1. `sign.mjs` 的 rc=2 分支（git fetch 失败）未验。
 2. `signoff-commits.mjs --strict` 仍报历史行不完整，按既定结论不回填、不进 gate。
+
+
+## 重签（2026-11-25T12:46Z，check-rc-pipe 与 rc=2 分支都验过之后）
+
+### 身份（`node bin/fingerprint.mjs --head` 现取，采样 2026-11-25T12:41:40Z）
+
+| 项 | 值 |
+| --- | --- |
+| 总指纹 | `d4fc48004b98c03c5ed1777a98aa9021` |
+| 口径 | HEAD `a0e9111` |
+| 文件数 / 总字节 | 106 / 575,474（上一版 105 / 570,933） |
+| 取前取后 git status | 0 行 / 0 行 |
+
+上一版 `31a79fb1` 作废。新增 `scripts/check-rc-pipe.mjs`（同一行既有单个管道又有 `$?` 就红），已进 gate。
+
+### 判据（整条命令的 rc）
+
+```text
+npm run verify → rc=0   tests 246，gate 4 条判据 8 步（4 步 selftest）0 失败
+node bin/fingerprint.mjs --selftest → rc=0，八条 PASS
+node scripts/check-rc-pipe.mjs → rc=0，28 个文件命中 0 处
+```
+
+### 复核方自己跑的三件
+
+一、check-rc-pipe 会红（往 README 的 bash 块插一行管道取 rc）
+
+```text
+插入 → rc=1   红  README.md:65  node bin/fingerprint.mjs | tail -3; echo "rc=$?"
+复原 → rc=0   28 个文件，命中 0 处
+```
+
+二、sign.mjs 的 rc=2 分支（临时 clone，改 remote 指向不存在路径，不动本仓）
+
+```text
+git clone --depth 1 file:///…/pi-think-sentry /tmp/rc2-…
+  clone 里同步状态   rc=0
+git remote set-url origin /nonexistent-remote-path
+  再跑               rc=2
+  sign: git fetch 失败，判断不了本地是否领先远端（rc=2，环境缺失）
+```
+
+上一份签字文件里这条写的是「未验」。现在验过了，rc=1 与 rc=2 两码确实分得开：
+rc=1 是状态不对，rc=2 是机器判断不了。
+
+三、四层判据的账
+
+```text
+签工作区脏        sign.mjs          rc=1   已验
+签本地领先远端    sign.mjs          rc=1   已验
+环境判断不了      sign.mjs          rc=2   本节首次验过
+报 rc 用管道      check-rc-pipe     rc=1   已验（本节）
+检查红了还推      pre-push hook     exit 1 已验
+历史行不完整      signoff --strict  红     不进 gate，按定论不回填
+```
+
+### 签字
+
+| 角色 | 会话 | 状态 | 时刻 |
+| --- | --- | --- | --- |
+| 复核方 | pi 插件2 `f15be404` | `| 复核方 | f15be404 | **已签**：`d4fc48004b98c03c5ed1777a98aa9021`、npm run verify rc=0；check-rc-pipe 插入管道行实测 rc=1；rc=2 分支用临时 clone 实测、取前取后 0 行 | 2026-11-25T12:44:00Z |` | 2026-11-25T12:46Z |
+| 修改方 | pi 插件 `9d80afea` | **已签**：`d4fc4800`、verify rc=0、local = remote | 2026-11-25T12:34Z |
+
+### 未验证项
+
+只剩一条：`signoff-commits.mjs --strict` 报历史行不完整。按既定结论不回填、不进 gate——
+它判历史完备性，不判代码正确性。
