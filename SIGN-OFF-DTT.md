@@ -8,22 +8,27 @@
 | 文档 | `README.md` |
 | 判据 | `node verify-dtt.mjs` → 期望 rc=0 |
 | 坏样本 | `node verify-dtt.mjs --selftest` → 期望 5/5 全红 |
-| 指纹 | `7abb1d3361e70872107dc7d22bb63a6fa3ae61b110bb52163b82ebca4ac99209` |
+| 指纹一致 | `node scripts/check-dtt-fingerprint.mjs` → 期望 rc=0；本表那行与现值不同就红 |
+| 指纹 | `66db72abad369c79954308c0807ca752aa3e742d2b7eb9093b8cb43acfe427e7` |
 | 既有测试 | `npm test` |
 | sorry | 无 |
 
 ## 乙方（改动方）
 
-- 元理论节、判据脚本、五个坏样本：写了，跑了，rc 见上表。
-- 指纹取法：`node verify-dtt.mjs --fingerprint`，算的是 `README.md` 与 `verify-dtt.mjs` 两个文件的 sha256。
-- 乙方宣布不了收敛。下表空着等甲方。
+| 项 | 内容 |
+| --- | --- |
+| 改了什么 | README 与 SETTINGS 按当前代码重写；新增 `scripts/check-dtt-fingerprint.mjs`，让本表指纹过期会红 |
+| 判据 | `npm run verify` → rc=0（签字行里记这一次的实跑结果） |
+| 指纹取法 | `node verify-dtt.mjs --fingerprint`：`README.md` 与 `verify-dtt.mjs` 两个文件的 sha256 |
+| 宣布不了收敛 | 下表空着等甲方 |
 
 ## 甲方（复核方）
 
-复核命令只有一条：`node verify-dtt.mjs --fingerprint`，输出与上表逐字符相同才算盘上没有事后改动。
+复核命令两条：`node verify-dtt.mjs --fingerprint` 与 `node scripts/check-dtt-fingerprint.mjs`。
+输出与上表逐字符相同才算盘上没有事后改动。
 
 | 项 | 填什么 |
 | --- | --- |
-| 复核时刻 | 2026-11-22T09:08Z |
-| 结论 | 全部认可 |
-| 签名 | 6f3e0a1b |
+| 复核时刻 | |
+| 结论 | |
+| 签名 | |

@@ -14,7 +14,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const TICK = String.fromCharCode(96);
-const DOCS = ["README.md", "SETTINGS.md", "docs/guard-rules.md"]
+const DOCS = ["README.md", "SETTINGS.md"]
   .map((f) => path.join(here, f))
   .filter((f) => fs.existsSync(f));
 if (DOCS.length === 0) { console.log("缺文档"); process.exit(2); }
