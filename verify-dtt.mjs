@@ -67,12 +67,35 @@ export function fingerprint() {
 }
 
 
+/** 清空第一张带反例列的表里的第一格反例。
+ *  2026-11-25：原来这里替换的是上一版 README 里的一句具体文字
+ *  （「必要时生效」那句）。README 重写之后那句不在了，替换什么都等于没替换，
+ *  坏样本 = 好样本，于是这条自检从「证明判据会红」退化成「证明文件没变」。
+ *  改成按结构找：第一张带「反例」或「坏样本」列的表，把第一行数据的那一格清空。
+ *  它不认任何一句具体的话，所以文档怎么写都不会让它失效。 */
+function clearAFailureCell(t) {
+  const lines = String(t).split(String.fromCharCode(10));
+  for (let i = 0; i < lines.length - 1; i++) {
+    if (!lines[i].startsWith("|") || !/^\|\s*-/.test(lines[i + 1])) continue;
+    const head = lines[i].split("|").slice(1, -1).map((s) => s.trim());
+    const col = head.findIndex((h) => h.includes("反例") || h.includes("坏样本"));
+    if (col < 0) continue;
+    const j = i + 2;
+    if (!lines[j] || !lines[j].startsWith("|")) continue;
+    const cells = lines[j].split("|");
+    cells[col + 1] = " ";
+    lines[j] = cells.join("|");
+    return lines.join(String.fromCharCode(10));
+  }
+  return t;
+}
+
 function selftest() {
   const good = fs.readFileSync(DOC, "utf8");
   const bads = [
     ["删掉元理论节", good.split(/^##\s*元理论.*$/m).join("## 别的东西")],
     ["反例列改名成备注", good.split("| 反例 |").join("| 备注 |").split("| 坏样本 |").join("| 备注 |")],
-    ["反例格清空", good.split("「必要时生效」——盘上查不到它在哪生效").join("")],
+    ["反例格清空", clearAFailureCell(good)],
     ["混进过程词", good + "\n\n本轮已完成，进行中。\n"],
     ["命令指向不存在的脚本", good + "\n\nnode 这个脚本不存在.mjs\n"],
   ];
