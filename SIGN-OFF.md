@@ -509,3 +509,66 @@ node --experimental-strip-types bin/bench-judges.mjs
 
 E 判据不判「EXCLUDE 与 VOLATILE 重叠」；修改方这一版把 VOLATILE 改成只从 filesOf 取之后仍未见重叠用例。
 本仓现 `VOLATILE = []`（空集），重叠在形式上消失，但「E 会不会挡住将来重新制造的重叠」仍未验证。
+
+
+## 重签（2026-11-25T12:10Z，pre-push 钩子装上之后）
+
+### 身份（`node bin/fingerprint.mjs --head` 现取，采样 2026-11-25T12:06:54Z）
+
+| 项 | 值 |
+| --- | --- |
+| 总指纹 | `6f614d5a5f241a4a1e726fd5b433bbf0` |
+| 口径 | HEAD `c1457d2` |
+| 文件数 / 总字节 | 104 / 564,621（上一版 102 / 554,679） |
+| 取前取后 git status | 0 行 / 0 行 |
+
+上一版 `7dce27c7` 作废。新增 `bin/signoff-commits.mjs`（把签字行读成一列）与 `bin/install-hooks.mjs`（装 pre-push）。
+
+### 判据（整条命令的 rc）
+
+```text
+npm run verify → rc=0
+node bin/fingerprint.mjs --selftest → rc=0，八条 PASS
+node bin/signoff-commits.mjs --strict → rc=1，16 行不完整（不计入 gate，见下）
+```
+
+### 复核方自己跑的两件
+
+一、pre-push 钩子真会拒推（两仓各一次，用 --dry-run 不碰远端）
+
+```text
+塞 scripts/check-zzz-canary.mjs（返回 1）
+  git push --dry-run origin main → rc=1   error: failed to push some refs
+删掉 canary
+  git push --dry-run origin main → rc=0
+  status 0 行
+```
+
+这是「rc=1 不许推」第一次由机器挡住，不再靠自觉。
+
+二、签字表读得出来（`node bin/signoff-commits.mjs`）
+
+```text
+复核方  52ae7a1f / bc3fbe03 / 87dd8280 / 0c02d6ec / fb626562 / 7dce27c7   ← 都只记了前 8 位
+修改方  五行写着「本行没写指纹」
+--strict: 16 行不完整
+```
+
+### 关于不完整指纹的处理（复核方定）
+
+**不动历史行，从现在起双方写完整 32 位。**
+
+三条理由：
+
+1. 历史行是各自写的既成事实。回填等于改「谁在什么时刻写了什么」，比留一条不完整的更坏。
+2. 不完整的行现在不会静默：`--strict` 把它们逐行标出（「记的是前 8 位」/「没写指纹」），红着。
+3. 补我自己的、不补对方，会造出一份「一半完整一半不完整」的表，读的人分不清哪些是补的。
+
+本行起，复核方的签字行写完整 32 位。`--strict` 保持不进 gate：它判的是历史完备性，不是代码正确性。
+
+### 签字
+
+| 角色 | 会话 | 状态 | 时刻 |
+| --- | --- | --- | --- |
+| 复核方 | pi 插件2 `f15be404` | **重签**：`--head` 复算 `6f614d5a5f241a4a1e726fd5b433bbf0` 与修改方报的逐字相同；verify rc=0；selftest 八条 PASS；pre-push 拒推实测 rc=1、删除后 rc=0；取前取后 0 行 | 2026-11-25T12:10Z |
+| 修改方 | pi 插件 `9d80afea` | **已签**：`6f614d5a`、verify rc=0、local = remote | 2026-11-25T12:06Z |
