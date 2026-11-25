@@ -11,7 +11,6 @@ import { judgeThinking, judgeCfg, type JudgeCfg } from "./judges.ts";
 import strip from "./features/strip.ts";
 import intercept, { SAY_BLOCK, SAY_LANG } from "./features/intercept.ts";
 import { planSignatureCleanup, planSignatureCleanupIncremental, type CleanupState } from "./algo/signature.ts";
-import { alreadyWritten } from "./algo/written.ts";
 
 export { SAY_BLOCK, SAY_LANG };
 
@@ -516,20 +515,14 @@ export default async function installGuard(pi: any) {
 
     writeState();
 
-    const entries = [];
-  if (content !== source) {
-    // 幂等（2026-11-26，第二次同型事故）：只比「这一轮改没改」不够 ——
-    // 同一个 target 会被反复处理（同一 messageEntryId 多次 turn_end、或 strip 与 inject 交替），
-    // 于是每轮都追加一条**内容完全相同**的 context_edit。
-    // 实测 2026-11-20 那个会话 124745 条 context_edit / 305MB，占文件 87%，
-    // 探针读完要十几秒、pi 构建 prompt 报 call stack 溢出。
-    // 判据：要写的内容与该 target 最后一条覆盖记录逐字节相同 → 不写。
-    // 只反扫尾部窗口：context_edit 总写在 target 之后，窗口外不可能有更近的一条。
-    const tail = ((ctx as any)?.sessionManager?.getEntries?.() ?? []) as any[];
-    if (!alreadyWritten(tail, event.messageEntryId, content)) {
-      entries.push({ type: "context_edit", targetId: event.messageEntryId, replacement: { content } });
-    }
-  }
+  const entries = [];
+    // 2026-11-26 用户决定：**这个插件不再注入任何内容**。
+    // 原来这里会把「折过的 content」写成一条 context_edit 落盘：
+    //   if (content !== source) entries.push({ type: "context_edit", ... })
+    // 哪怕加了幂等（alreadyWritten）之后仍然是本机最大的会话污染源之一 ——
+    // 一个 351MB 的会话里 305MB 是这类账本行，而它带来的收益只是「模型下一轮少看几段重复思考」。
+    // 决定之后的口径：strip 仍然跑（stats 与 trace 要用这些数），但**一个字节都不写盘**。
+    // 反例（这条挡的）：把它改回 entries.push —— 文件立刻回到 O(轮数) 增长。
     // 清理 thinkingSignature，只保留最近 keepTurns 个大轮（2026-11-24 用户要的）。
     // ctx.sessionManager.getEntries() 是唯一能拿到历史 entry 的接口；
     // context_edit 的 targetId 能指向任意 entry，所以清历史不需要改 jsonl（B1 边界不变）。

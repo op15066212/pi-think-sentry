@@ -17,32 +17,37 @@ process.env.CURB_CONFIG_FILE = TMP_CFG;
 const { default: installGuard } = await import("../src/index.ts");
 
 import { fakePi, call } from "../test/harness.ts";
-test("别人在这一轮提案的 entries 必须留着", async () => {
+// 2026-11-26 用户决定：**这个插件不再注入任何内容**。
+//
+// 原来这两条测的是「我们提案 context_edit 时，别的扩展在同一轮提案的 entries 不能被盖掉」
+// （pi 文档：returning entries replaces only that field）。现在轮末一个字节都不写盘，
+// 「我们的提案」不存在了，那两条的观察点随之消失。
+//
+// 留下的是现在真正要证的那一条：**turn_end 不返回任何 entries**。
+// 它同时保住了原来的安全性：我们什么都不返回，就不会接管 entries 字段，别人的提案自然还在。
+
+test("轮末不注入任何内容：turn_end 不返回 entries", async () => {
   const pi = fakePi();
   await installGuard(pi);
-
-  const theirs = { type: "custom_message", customType: "someone-else", content: "别的扩展写的", display: false };
   const out = await call(pi, "turn_end", {
     outcome: "completed",
     messageEntryId: "e1",
-    entries: [theirs],
+    // 一段一定会被判红、原来一定会被改写的思考（碎片重复）。
     message: { content: [{ type: "thinking", thinking: "做。\n做。\n做。\n做。\n正文。" }, { type: "text", text: "答" }] },
   });
-
-  const got = out.find((x: any) => x && x.entries);
-  assert.ok(got, "前提：这一轮我们确实提案了东西（有重复行要删）");
-  assert.equal(got.entries[0], theirs, "别人的提案必须原样排在前面");
-  assert.ok(got.entries.length >= 2, "我们的提案接在后面");
+  assert.equal(out.find((x: any) => x && x.entries), undefined, "不该返回 entries（返回就写盘了）");
 });
 
-test("别人没提案时，返回的 entries 就是我们的", async () => {
+test("别人在这一轮提案的 entries 不因我们而丢", async () => {
   const pi = fakePi();
   await installGuard(pi);
+  const theirs = { type: "custom_message", customType: "someone-else", content: "别的扩展写的", display: false };
   const out = await call(pi, "turn_end", {
     outcome: "completed",
     messageEntryId: "e2",
+    entries: [theirs],
     message: { content: [{ type: "thinking", thinking: "做。\n做。\n做。\n做。\n正文。" }, { type: "text", text: "答" }] },
   });
-  const got = out.find((x: any) => x && x.entries);
-  assert.ok(got.entries.every((e: any) => typeof e.type === "string"), "没有别人的提案时不该凭空造");
+  // 我们不返回 entries 字段 = 不接管它 = pi 保留原值。
+  assert.equal(out.find((x: any) => x && x.entries), undefined, "不该接管 entries 字段");
 });

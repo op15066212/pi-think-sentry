@@ -66,3 +66,56 @@ test("畸形判据：没有 dups 就当没有重复行", () => {
   assert.equal(strip.clean(one(think), {}, 3).cleaned, false);
   assert.equal(strip.clean(one(think), { ev: {} }, 3).cleaned, false);
 });
+
+// ── 以下四条 2026-11-26 从 test/install.test.ts 迁来 ──
+// 为什么迁：那四条原来通过 turn_end 返回的 entries 观察 strip 的产物，
+// 而用户决定「插件不再注入任何内容」后，轮末一个字节都不写盘，观察点消失。
+// 它们要证的性质本来就是 strip.clean 的输出，直接调纯函数更精确。
+const FRAG = "读完配置后我把三个阈值都记下来，然后逐条核对它们是不是写在同一个文件里。\n（执行）done。\n（执行）done。\n（执行）done。\n（执行）done。";
+
+test("碎片：按行剔除重复行，改后的文本不再含那句碎片", () => {
+  const v = gate(FRAG);
+  assert.equal(v.kind, "strip", "前提：判据红了");
+  const r = strip.clean(one(FRAG), v, 3);
+  assert.equal(r.cleaned, true);
+  const thought = textOf(r);
+  assert.ok(thought.length < FRAG.length, "剔除之后应当变短");
+  assert.ok(!thought.includes("（执行）done。"), "重复行应当被删干净，实际：" + thought.slice(0, 80));
+});
+
+test("多块思考：只改有重复行的那一块，另一块逐字不变", () => {
+  const B = "第二块思考写完整，不含碎片，用来验证不会被灌成同一段。";
+  const v = gate(FRAG);
+  const r = strip.clean([{ type: "thinking", thinking: FRAG }, { type: "text", text: "回答" }, { type: "thinking", thinking: B }], v, 3);
+  const blocks = r.content.filter((c: any) => c.type === "thinking");
+  assert.equal(blocks.length, 2, "两块都还在");
+  assert.ok(blocks[0].thinking.length < FRAG.length, "第一块被改短");
+  assert.equal(blocks[1].thinking, B, "第二块必须逐字不变");
+});
+
+test("多块思考：重复行在第二块时只改第二块，第一块逐字不变", () => {
+  const A = "第一块是干净的完整句子，不含任何碎片，用来断言它逐字保留。";
+  const v = gate(FRAG);
+  const r = strip.clean([{ type: "thinking", thinking: A }, { type: "text", text: "回答" }, { type: "thinking", thinking: FRAG }], v, 3);
+  const blocks = r.content.filter((c: any) => c.type === "thinking");
+  assert.equal(blocks[0].thinking, A, "第一块必须逐字不变");
+  assert.ok(blocks[1].thinking.length < FRAG.length, "第二块被改短");
+});
+
+test("整块都是碎片：有正文就删光；只剩思考时留占位，不回退原文", () => {
+  const wall = Array.from({ length: 30 }, () => "做。").join("\n");
+  const v = gate(wall);
+  assert.equal(v.kind, "strip", "前提：判据红了");
+  // 有正文：thinking 删空不留空白块，正文块原样
+  const r1 = strip.clean([{ type: "thinking", thinking: wall }, { type: "text", text: "回答" }], v, 3);
+  assert.ok(r1.content.some((c: any) => c.type === "text"), "正文块要留着");
+  for (const b of r1.content.filter((c: any) => c.type === "thinking")) {
+    assert.ok(String(b.thinking).trim().length > 0, "不该留下只有换行的空 thinking 块");
+  }
+  // 只有 thinking：留一句指针占位，不自造句子
+  const r2 = strip.clean([{ type: "thinking", thinking: wall }], v, 3);
+  const kept = String(r2.content.find((c: any) => c.type === "thinking")?.thinking || "");
+  assert.ok(kept.trim().length > 0, "空守护：删空之后必须留一句，不能是空白");
+  assert.ok(!kept.includes("做。"), "重复行已经删掉了，不该留原文");
+  assert.match(kept, /\[原第 \d+-\d+ 行共 \d+ 行，全部重复已删\]/, "占位句要指得到行号");
+});

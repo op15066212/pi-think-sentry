@@ -120,20 +120,6 @@ test("判据由红转干净后，工具调用不该被拦", async () => {
   assert.notEqual(res?.block, true, "上一个 thinking 块是中文，不该拦；实际 " + JSON.stringify(res));
 });
 
-test("碎片：轮末按行剔除重复行，改后的文本不再含那句碎片", async () => {
-  resetCooldown();
-  const pi = fakePi();
-  await installGuard(pi);
-  await call(pi, "before_agent_start");
-  const [res] = await call(pi, "turn_end", {
-    message: msgOf(FRAG), messageEntryId: "e1", outcome: "completed", toolResults: [],
-  });
-  assert.ok(Array.isArray(res?.entries) && res.entries.length >= 1, "应当返回 entries");
-  assert.equal(res.entries[0].type, "context_edit", "第一条应是 context_edit");
-  const thought = res.entries[0].replacement.content.find((c: any) => c.type === "thinking").thinking;
-  assert.ok((thought).length < FRAG.length, "剔除之后（去掉结算段）应当变短");
-  assert.ok(!thought.includes("（执行）done。"), "重复行应当被删干净，实际：" + thought.slice(0, 80));
-});
 
 test("中文守护：整段英文不撤回，只在工具调用前拦", async () => {
   resetCooldown();
@@ -170,18 +156,6 @@ test("manifest：pi.extensions 指向的文件真的存在", async () => {
   }
 });
 
-test("自环按 entryId 判：同一条 entry 不再改，换 entry 是新介入", async () => {
-  resetCooldown();
-  const pi = fakePi();
-  await installGuard(pi);
-  await call(pi, "before_agent_start");
-  const [c1] = await call(pi, "turn_end", { message: msgOf(FRAG), messageEntryId: "e3", outcome: "completed", toolResults: [] });
-  assert.ok(c1?.entries, "第一次应改写");
-  const [c1b] = await call(pi, "turn_end", { message: msgOf(FRAG), messageEntryId: "e3", outcome: "completed", toolResults: [] });
-  assert.ok(!c1b, "同一条 entry 再来是自环，不该再改");
-  const [c2] = await call(pi, "turn_end", { message: msgOf(FRAG), messageEntryId: "e4", outcome: "completed", toolResults: [] });
-  assert.ok(c2?.entries, "换了 entry 是新介入，该改");
-});
 
 test("中断的轮次不介入：aborted 不改写、error 不撤回", async () => {
   resetCooldown();
@@ -196,32 +170,6 @@ test("中断的轮次不介入：aborted 不改写、error 不撤回", async () 
   assert.equal(un, undefined, "outcome 缺失或未知时按不介入处理");
 });
 
-test("多块思考：只改有重复行的那一块，另一块原样（防上下文膨胀）", async () => {
-  resetCooldown();
-  const pi = fakePi();
-  await installGuard(pi);
-  await call(pi, "before_agent_start");
-  const B = "第二块思考写完整，不含碎片，用来验证不会被灌成同一段。";
-  const msg = { content: [{ type: "thinking", thinking: FRAG }, { type: "text", text: "回答" }, { type: "thinking", thinking: B }] };
-  const [res] = await call(pi, "turn_end", { message: msg, messageEntryId: "e-multi", outcome: "completed", toolResults: [] });
-  const blocks = (res?.entries?.[0]?.replacement?.content || []).filter((c: any) => c.type === "thinking");
-  assert.equal(blocks.length, 2, "两块都还在");
-  assert.ok((blocks[0].thinking).length < FRAG.length, "第一块被改短（去掉结算段）");
-  assert.equal((blocks[1].thinking), B, "第二块必须原样（结算段除外）");
-});
-
-test("多块思考：重复行在第二块时只改第二块，第一块逐字不变", async () => {
-  resetCooldown();
-  const pi = fakePi();
-  await installGuard(pi);
-  await call(pi, "before_agent_start");
-  const A = "第一块是干净的完整句子，不含任何碎片，用来断言它逐字保留。";
-  const msg = { content: [{ type: "thinking", thinking: A }, { type: "text", text: "回答" }, { type: "thinking", thinking: FRAG }] };
-  const [res] = await call(pi, "turn_end", { message: msg, messageEntryId: "e-multi2", outcome: "completed", toolResults: [] });
-  const blocks = (res?.entries?.[0]?.replacement?.content || []).filter((c: any) => c.type === "thinking");
-  assert.equal((blocks[0].thinking), A, "第一块必须逐字不变（结算段除外）");
-  assert.ok((blocks[1].thinking).length < FRAG.length, "第二块被改短（去掉结算段）");
-});
 
 test("观察面：拦过一次后 blocked 计数与命令输出都能看到", async () => {
   resetCooldown();
@@ -247,32 +195,10 @@ test("观察面：拦过一次后 blocked 计数与命令输出都能看到", as
   assert.equal(typeof j.lang, "string", "json 里要有 lang");
 });
 
-test("整块都是碎片：有正文就删光，只剩思考才回退原文", async () => {
-  resetCooldown();
-  const pi = fakePi();
-  await installGuard(pi);
-  await call(pi, "before_agent_start");
-  const wall = Array.from({ length: 30 }, () => "做。").join("\n");   // 历史形态：整块都是碎片
-  const msg = { content: [{ type: "thinking", thinking: wall }, { type: "text", text: "回答" }] };
-  const [res] = await call(pi, "turn_end", { message: msg, messageEntryId: "e-wall", outcome: "completed", toolResults: [] });
-  const blocks1 = res?.entries?.[0]?.replacement?.content || [];
-  assert.ok(blocks1.some((c: any) => c.type === "text"), "正文块要留着");
-  for (const b of blocks1.filter((c: any) => c.type === "thinking")) {
-    assert.ok(String(b.thinking).trim().length > 0, "不该留下只有换行的空 thinking 块");
-  }
-  const said1 = (res?.entries || []).find((x: any) => x.type === "custom_message")?.content || "";
-  assert.ok(!/原文保留|已从上文删掉/.test(said1), "有正文时删干净了，不该说原文保留，实际：" + said1);
-
-  // 只有 thinking 块、删光之后：留一句占位，不回退原文（使用者 2026-11-21：空守护）。
-  resetCooldown();
-  const pi2 = fakePi();
-  await installGuard(pi2);
-  await call(pi2, "before_agent_start");
-  const msg2 = { content: [{ type: "thinking", thinking: wall }] };
-  const [res2] = await call(pi2, "turn_end", { message: msg2, messageEntryId: "e-wall2", outcome: "completed", toolResults: [] });
-  const kept = (res2?.entries || []).find((x: any) => x.type === "context_edit")?.replacement?.content?.find((c: any) => c.type === "thinking")?.thinking || "";
-  assert.ok(kept.trim().length > 0, "空守护：删空之后必须留一句，不能是空白，实际：" + JSON.stringify(kept));
-  assert.ok(!kept.includes("做。"), "重复行已经删掉了，不该留原文，实际：" + kept.slice(0, 40));
-  // R6：占位句从固定句改成指针，判据要跟着变——指得到行号，且不自造句子。
-  assert.match(kept, /\[原第 \d+-\d+ 行共 \d+ 行，全部重复已删\]/, "占位句要指得到行号，实际：" + kept.slice(0, 60));
-});
+// 2026-11-26 用户决定：**这个插件不再注入任何内容**。
+// 原来这四条测试通过 turn_end 返回的 entries 观察 strip 的产物：
+//   碎片剔除 / 多块思考只改命中的那块（两条）/ 整块都是碎片时的回退
+// 现在轮末一个字节都不写盘，观察点消失。
+// 它们要证的性质是 strip.clean 的输出（纯函数），已经原样迁到 test/strip.test.ts，
+// 那几条直接调 strip.clean，比端到端更精确（P20：证明项精确到这一条）。
+// 自环那条（同一 entry 不再改）随写入一起消失：没有写入就没有自环。
