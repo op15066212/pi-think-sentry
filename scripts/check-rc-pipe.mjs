@@ -68,17 +68,34 @@ export function check(files) {
   return problems;
 }
 
-if (process.argv.includes("--selftest")) {
+// isMain 保护（2026-11-25）：别的脚本要 import badLine 做精确输入测试时，
+// 原来会连带跑主流程并 exit。同一个修法我在 check-doc-accuracy 里做过，这里漏了。
+// 两边都归一成正斜杠再比：fileURLToPath 在 Windows 上返回反斜杠，
+// 只归一右边的话永远不等（我第一版就写错了，于是导入时主流程照跑）。
+const norm = (x) => String(x || "").replace(/\\/g, "/");
+const isMain = !!process.argv[1] && norm(fileURLToPath(import.meta.url)) === norm(process.argv[1]);
+if (isMain && process.argv.includes("--selftest")) {
   // 好样本：重定向后单独读 rc
   const good = ['node x.mjs > /tmp/o.txt 2>&1', 'echo "rc=$?"'];
   // 坏样本：管道末端取 rc——就是我自己犯的那一次
   const bad = ['node x.mjs | tail -3; echo "rc=$?"'];
+  // 六种形状逐一钉住（2026-11-25）。每一条都做过变异：关掉对应那行防线，
+  // 这个形状立刻翻成 true。所以这六条不是凑数，是一条形状对一条防线。
+  const SHAPES = [
+    ["真该命中（管道 + $?）", 'node x.mjs | tail -3; echo "rc=$?"', true],
+    ["|| 是逻辑或不是管道", 'cd x || exit 1; echo $?', false],
+    ["引号里的 | 不算", 'echo "a|b"; echo $?', false],
+    ["注释行不算", '// node x | tail; echo $?', false],
+    ["markdown 表格不算", '| a | b |', false],
+    ["重定向后取 rc 不算", 'node x > /tmp/o 2>&1; echo $?', false],
+  ];
   const cases = [
     ["重定向后单独读 rc → 不该命中", good.some(badLine) === false],
     ["管道后同一行取 rc → 必须命中", bad.some(badLine) === true],
     ["markdown 表格行 → 不该命中", badLine("| a | b |") === false],
     ["注释行 → 不该命中", badLine("// node x | grep y; echo $?") === false],
   ];
+  for (const [name, line, want] of SHAPES) cases.push(["形状：" + name, badLine(line) === want]);
   let n = 0;
   for (const [name, ok] of cases) { if (!ok) n++; console.log((ok ? "PASS  " : "FAIL  ") + name); }
   console.log(n === 0 ? "selftest: 坏样本红、好样本绿" : "selftest: " + n + " 条不符");
@@ -93,7 +110,10 @@ for (const f of ["README.md", "HISTORY.md", "SETTINGS.md", "DESIGN.md"]) {
 }
 if (!files.length) { console.error("check-rc-pipe: 没有可扫的文件（rc=2）"); process.exit(2); }
 
-const problems = check(files);
-for (const p of problems) console.log("红  " + p);
-console.log("check-rc-pipe: " + files.length + " 个文件，命中 " + problems.length + " 处");
-process.exit(problems.length === 0 ? 0 : 1);
+const problems = isMain ? check(files) : [];
+if (isMain) {
+  const problems = check(files);
+  for (const p of problems) console.log("红  " + p);
+  console.log("check-rc-pipe: " + files.length + " 个文件，命中 " + problems.length + " 处");
+  process.exit(problems.length === 0 ? 0 : 1);
+}
