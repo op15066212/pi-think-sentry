@@ -691,6 +691,29 @@ node scripts/gate.mjs
 #   selftest 红了就不跑正常模式——判据本身坏了，它给的「0 处对不上」没有意义。
 #   反例：往 scripts/ 塞一个返回 1 的 check-zzz-canary.mjs，gate 必须 rc=1 并点名。
 ```
+### 四条检查脚本，各挡一种「判据自己坏了」
+
+| 脚本 | 挡什么 | 反例 |
+|---|---|---|
+| `check-doc-accuracy.mjs` | 文档里的配置键与路径，盘上必须真有 | 文档写已删的 `strict` |
+| `check-rules-coverage.mjs` | 规则表与实现对齐，模块文件存在 | 改坏一条 `module` |
+| `check-rc-pipe.mjs` | 报退出码的那一行不许有管道 | `node x \| tail; echo rc=$?` |
+| `check-main-guard.mjs` | 有导出的脚本，「直接跑」与「被 import」两个方向都要对 | 删掉 `isMain` 判定 |
+
+`check-main-guard` 的 B 方向由 `scripts/main-probe.mjs` 执行——**它是仓里的真文件**，
+不在判据里拼源码。拼过四次，每次都错：反斜杠要穿三层转义，最后一次错到判据自己不准。
+判据自己不准比没有判据更坏，它会让人去改本来没坏的代码。
+
+### 两个「同一修法在第二处漏」的实例
+
+这类漏现在有机器判据的只有一种：**规则有测试但没进四件表**（`audit()` 抓，它在自检里，自检在 gate 里）。
+
+另一种仍然只能靠碰巧：**同一个语义写在两个地方**。真实发生过两次——
+`mods` 数组支持只改了主流程没改 selftest（被 gate 补 selftest 后崩出来）；
+`EXCLUDE` 口径照抄另一个仓，被签面掉了三个文档（报数时看到 25 变 22 才发现）。
+
+`pi-escape-guard` 那边的 `check-mirror` 判据管跨仓的那一种（验两个仓的 `keysIn` 行为一致），本仓内没有对应判据。
+
 ### 配置的「读进来」与「接到判据上」是两件事
 
 实测（`node --experimental-strip-types bin/probe-live-config.mts`）：
