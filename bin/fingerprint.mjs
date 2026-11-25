@@ -73,21 +73,49 @@ if (USE_HEAD) {
   ROOT = tmp;
   process.on("exit", () => { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {} });
 }
-const DIRS = ["src", "test", "bin", "scripts"];
-const EXTS = new Set([".ts", ".mts", ".mjs", ".js", ".json"]);
+const DIRS = ["src", "test", "bin", "scripts", "docs"];
+const EXTS = new Set([".ts", ".mts", ".mjs", ".js", ".json", ".md", ".txt"]);
 
-// 两个顶层文件要不要进总指纹，判据是「它变是因为代码变了，还是因为运行状态变了」。
+// 被签面 = 「进 git 的、会影响行为或含义的」文件，减去下面点名排除的四个。
 //
-//   README.md      进。口径上限写在里面，双方认可的是它。它变只因为有人改了字。
-//   settings.json  不进。用户改一个开关它就变，指纹跟着变就分不清
-//                  「代码改了」与「有人动了配置」。它单独列在输出里给人看。
-//   package-lock   不进。npm install 会动它，与代码改动无关。
+// 2026-11-25 之前这里是反过来的：TOP_FILES 手写一张"要签哪些"的清单。
+// 那个方向错在默认值——新文件默认不进被签面，于是漏掉不会红。
+// 真实发生过的三件事：
+//   一 guard 的 DESIGN / SETTINGS / HISTORY 一度从清单里掉了，文件数 25 -> 22，
+//      没有任何判据红，签字照样成立（pi 插件2 与我各自独立看到这个数才发现的）；
+//   二 verify-dtt.mjs 在仓根，不在 DIRS 也不在清单里，**一条判据从不在被签面**；
+//   三 llms.txt / PR.md / .gitignore 同样漏着。
 //
-// 2026-11-24（pi 插件2 抓的）：这个常量原来定义了却从未被引用，
-// 而注释写着「不进总指纹」、代码又把 settings.json 放进了 files。
-// 注释说 A，代码做 B——正是这一路在修的形状。现在它真的被用了。
+// 现在反过来：默认全收，要排除得点名，且点名的理由必须写出来。
+// 「签哪些」自动从盘上取，「不签哪些」必须人脸说清——这是 P15 的三种收场
+// （跟踪／点名忽略／点名待办），不是四不像。
+//
+// 反例（判据见 --selftest 的 A 条）：盘上多了个顶层文件而没人处理，
+// 它会被自动签进去；想不签就必须在这里加一行并写理由。
+const EXCLUDE = new Map([
+  ["SIGN-OFF.md", "签字记录本身。进了被签面，加一行就改指纹，就得重签，循环没有尽头。"],
+  ["SIGN-OFF-DTT.md", "同上，元理论那套签字记录。"],
+  ["package-lock.json", "npm install 会动它，与代码改动无关。"],
+  ["settings.json", "用户改一个开关它就变。指纹跟着变就分不清「代码改了」与「有人动了配置」。它单独列在输出里给人看。"],
+  // 目录以斜杠结尾。下面两个不进被签面，理由写在这里。
+  [".doc-bridge/", "doc-bridge 工具自动生成的知识索引。它随工具重扫而变，不是人写的。"],
+  ["reviews/", "只追加的审查记录。验它该读 git log 的历史，不是读一个应当稳定的数；改了旧记录，git 也会显示。"],
+]);
+
+/** 一个相对路径是否被 EXCLUDE 点名。目录以斜杠结尾按前缀匹配，其余按文件名匹配。 */
+function isExcluded(rel) {
+  if (EXCLUDE.has(rel)) return true;
+  for (const k of EXCLUDE.keys()) {
+    if (k.endsWith("/")) { if (rel.startsWith(k)) return true; }
+    else if (k === rel.split("/").pop()) return true;
+  }
+  return false;
+}
+
+// 仍在被签面里但不参与总指纹的（只印 md5 给人看）。
+// 与 EXCLUDE 的区别：EXCLUDE 是「不签」；VOLATILE 是「签，但它会随运行变，
+// 所以它的字节不能算进那个应当稳定的数」。
 const VOLATILE = new Set(["settings.json", "SIGN-OFF.md", "package-lock.json"]);
-const TOP_FILES = ["package.json", "tsconfig.json", "README.md", "settings.json", "SIGN-OFF.md"];
 
 function walk(dir, out = []) {
   if (!fs.existsSync(dir)) return out;
@@ -103,18 +131,20 @@ function walk(dir, out = []) {
   return out;
 }
 
-/** 给一个根目录，返回进被签面的所有绝对路径。 */
+/** 给一个根目录，返回进被签面的所有绝对路径。默认全收，EXCLUDE 点名的除外。 */
 function filesOf(root) {
   const out = [];
   for (const d of DIRS) out.push(...walk(path.join(root, d)));
-  // 顶层配置文件也是行为的一部分：口径上限写在 README 里，开关写在 settings 里。
-  // 不纳入指纹的话，双方认可的那份文档就没有身份，改一个字谁也看不出来。
-  for (const f of TOP_FILES) {
-    const p = path.join(root, f);
-    if (fs.existsSync(p)) out.push(p);
+  // 顶层：除 node_modules / 点开头的目录之外，全部收。
+  // 也包括 .gitignore 这类点开头的文件（它决定哪些东西进 git，是有语义的）。
+  for (const e of fs.readdirSync(root, { withFileTypes: true })) {
+    if (e.isDirectory()) continue;
+    if (isExcluded(e.name)) continue;
+    out.push(path.join(root, e.name));
   }
   return out;
 }
+
 
 /**
  * 给一个根目录，返回被签面的每一行 { rel, md5, bytes, lines }。
@@ -210,11 +240,43 @@ if (SELFTEST) {
   // 而 changed 是 selftest 自己走一遍算的、mHead 是子进程算的——两套代码、两个量，
   // 天然不等，那条用例恒真恒绿。把 ROOT = tmp 改成 ROOT = REPO 也不红。
   // 现在三条都对着同一个 total 比，变异才红得出来。
+  // ===== 判据 A：git 里有、被签面里没有 =====
+  // 期望从 git 取，不手写清单：git 已经替你记住哪些文件是项目的一部分。
+  // 实现从 filesOf 取。两者不同源，不同步就红。
+  // 这条挡的正是 2026-11-25 那个错：guard 抄 sentry 的 TOP_FILES，
+  // DESIGN / SETTINGS / HISTORY 从被签面掉了，文件数 25 -> 22，没有任何判据红。
+  const gitLs = spawnSync("git", ["-C", REPO, "ls-tree", "-r", "--name-only", "HEAD"], { encoding: "utf8", maxBuffer: 1 << 30 });
+  const gitFiles = (gitLs.stdout || "").split("\n").filter(Boolean);
+  const collected = new Set(filesOf(REPO).map((a) => path.relative(REPO, a).split(path.sep).join("/")));
+  const missed = gitFiles.filter((rel) => !collected.has(rel) && !isExcluded(rel));
+
+  // ===== 判据 B：目录里出现、EXTS 却不认的扩展名 =====
+  // 挡的是静默：DIRS 加了 docs 而 EXTS 没有 .md，walk 一个都不收，指纹少一块没人知道。
+  const raw = (dir) => {
+    if (!fs.existsSync(dir)) return [];
+    const out = [];
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) { if (!e.name.startsWith(".") && e.name !== "node_modules") out.push(...raw(p)); }
+      else out.push(p);
+    }
+    return out;
+  };
+  const seenExt = new Set();
+  for (const d of DIRS) for (const f of raw(path.join(REPO, d))) seenExt.add(path.extname(f));
+  const unhandledExt = [...seenExt].filter((e) => e && !EXTS.has(e));
+  const FILE = ["package.json", "tsconfig.json", "README.md", "SIGN-OFF.md"];
+  const ALWAYS = { "package.json": "package.json", "tsconfig.json": "tsconfig.json", "README.md": "README.md", "SIGN-OFF.md": "SIGN-OFF.md" };
+
   const cases = [
     ["写了探针，工作区口径的指纹必须变", changed !== total && changed !== ""],
     ["探针在盘上时，HEAD 口径与探针之前相同（它不读工作区）", !mHead || !headBefore ? false : mHead === headBefore],
     ["探针文件已按原字节恢复", restored],
+    ["A 判据：git HEAD 里每个文件都被签或被 EXCLUDE 点名（未签：" + missed.slice(0, 4).join(", ") + (missed.length > 4 ? " …共 " + missed.length : "") + "）", missed.length === 0],
+    ["B 判据：目录里出现的扩展名都被 EXTS 处理（未处理：" + unhandledExt.join(", ") + "）", unhandledExt.length === 0],
   ];
+
+
   let n = 0;
   for (const [name, ok] of cases) { if (!ok) n++; console.log((ok ? "PASS  " : "FAIL  ") + name); }
   console.log(n === 0 ? "selftest: 两条口径分得开、工作区已复原" : "selftest: " + n + " 条不符");
