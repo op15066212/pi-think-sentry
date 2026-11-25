@@ -854,3 +854,5 @@ node bin/sign.mjs 复核方 "…" → rc=0，本节签字行由它印出
 
 1. `signoff-commits.mjs --strict` 仍报历史行不完整，按既定结论不回填、不进 gate。
 2. 拦截门槛不判「散着写的转义」（每隔几个字插一个，min=3 不拦）。修改方已在 14:07 那封里提出，复核方答复见 escape-guard 那份。
+
+| 修改方 | 9d80afea | **已签**：`4e5c4ebca2b2da25727f7aef4523e0ef`、npm run verify rc=0（246/246 + gate 5 条判据 10 步）；文档补上四个检查脚本与探针、取前取后 0 行 | 2026-11-25T14:50:06Z |
