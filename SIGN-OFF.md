@@ -1158,3 +1158,5 @@ git show --stat 20bf33a → scripts/check-rules-coverage.mjs | 7 +++++++
 3. 注释与文档里写死数量这一类仍无机器判据。
 4. 「登记了但没有任何 RULES 点名」的反例只在纯函数层验过，真源层造不出来（MODULES 元素非字符串，塞假项会崩）。
 5. pi-escape-guard 未改动，仍为复核方已签的 `861291d7`（代码停在 HEAD `7d8ab5d`）。
+
+| 修改方 | 9d80afea | **已签**：`394d42671aaf318617c79da6cf558fae`、npm run verify rc=0（246/246 + gate 10 步）；README 补远端核法（好样本 rc=0／本地未推空提交 rc=1）；check-rc-pipe 补上注释里写着但没实现的表格跳过，并把恒真绿的 | a | b | 换成含 0 的真表格样本（停掉实现新样本 FAIL、旧样本仍 PASS）、取前取后 0 行 | 2026-11-25T16:06:25Z |
