@@ -49,11 +49,30 @@ export function planSignatureCleanup(entries: readonly Entry[], keepTurns: numbe
   const k = Math.max(0, Math.floor(keepTurns));
   const assistant = entries.filter((e) => e?.type === "message" && e?.message?.role === "assistant");
   const keepFrom = Math.max(0, assistant.length - k);
+  // 幂等（2026-11-25，真机事故）：context_edit 不改原始 entry——pi 文档
+  // docs/session-format.md 明写「the target entry and its metadata remain unchanged in
+  // raw history」。所以 hasSignature(原始 entry) 对已清过的目标永远为 true，
+  // 每轮 turn_end 都会再写一条内容相同的 edit。增长是 O(轮数 × 过期条目数)：
+  // 实测 2026-11-24T13-53-44 那个会话 133092 行里 131698 条是 context_edit
+  // （478 个 target，平均每个被重写 275 次），pi 构建 prompt / 压缩时
+  // 「Maximum call stack size exceeded」，1ms 就失败。
+  // 判据：看该 target 的**最后一条** edit 是否已无 thinkingSignature。
+  const lastEditOf = new Map<string, any>();
+  for (const e of entries as readonly any[]) {
+    if (e?.type === "context_edit" && typeof e.targetId === "string") lastEditOf.set(e.targetId, e);
+  }
+  const alreadyClean = (id: string): boolean => {
+    const content = lastEditOf.get(id)?.replacement?.content;
+    // replacement = null 是「整条从上下文里省略」，不是清签名，不能当已清。
+    if (!Array.isArray(content)) return false;
+    return !content.some((b: any) => b && typeof b.thinkingSignature === "string");
+  };
   const out: Edit[] = [];
   for (let i = 0; i < keepFrom; i++) {
     const e = assistant[i];
     if (!e || typeof e.id !== "string" || !e.id) continue;
     if (!hasSignature(e)) continue;
+    if (alreadyClean(e.id)) continue;
     out.push({ type: "context_edit", targetId: e.id, replacement: { content: stripOne(e.message!.content) } });
   }
   return out;

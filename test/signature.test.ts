@@ -54,6 +54,35 @@ test("没有签名的 assistant 不产生 edit（不制造空补丁）", () => {
   assert.deepEqual(edits.map((e) => e.targetId), ["a2"], "没有签名的那条不该产生 edit");
 });
 
+test("幂等：已清过的目标不再重复清（每轮重写是同一条事故）", () => {
+  const entries = [
+    asst("a1"),
+    { id: "e1", type: "context_edit", targetId: "a1", replacement: { content: stripOne(asst("a1").message.content) } },
+  ];
+  assert.deepEqual(planSignatureCleanup(entries, 0), []);
+});
+
+test("反例：最后一条 edit 又把签名写回去了，必须再清", () => {
+  const entries = [
+    asst("a1"),
+    { id: "e1", type: "context_edit", targetId: "a1", replacement: { content: asst("a1").message.content } },
+  ];
+  assert.deepEqual(planSignatureCleanup(entries, 0).map((e) => e.targetId), ["a1"]);
+});
+
+test("反例：replacement = null（整条从上下文省略）不算已清签名", () => {
+  const entries = [asst("a1"), { id: "e1", type: "context_edit", targetId: "a1", replacement: null }];
+  assert.deepEqual(planSignatureCleanup(entries, 0).map((e) => e.targetId), ["a1"]);
+});
+
+test("反例：只清过一次、但后来又追加了新的过期条目，新条目照样要清", () => {
+  const entries = [
+    asst("a1"),
+    { id: "e1", type: "context_edit", targetId: "a1", replacement: { content: stripOne(asst("a1").message.content) } },
+    asst("a2"),
+  ];
+  assert.deepEqual(planSignatureCleanup(entries, 0).map((e) => e.targetId), ["a2"]);
+});
 test("hasSignature 只看 assistant + message + 有字段", () => {
   assert.equal(hasSignature(asst("a1")), true);
   assert.equal(hasSignature(user("u1")), false);
