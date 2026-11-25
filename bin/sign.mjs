@@ -39,6 +39,32 @@ if (dirty > 0) {
   process.exit(1);
 }
 
+// 远端同步（2026-11-25，pi 插件2 指出第一版漏了这条）。
+//
+// 能签一份「本地领先远端」的指纹：那一刻工作区干净、指纹完整、签到表里也对，
+// 但别人 checkout 不到那个对象——签字只对这一份工作树成立。
+// 这与「签的是指纹不是 HEAD」是同一类：签一份别人取不到的东西。
+//
+// 环境判断不了记 rc=2，真的不同步记 rc=1：分开才分得清是机器问题还是状态问题。
+const fetch = git("fetch", "-q");
+if (fetch.status !== 0) {
+  console.error("sign: git fetch 失败，判断不了本地是否领先远端（rc=2，环境缺失）");
+  process.exit(2);
+}
+const up = git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}");
+if (up.status !== 0) {
+  console.error("sign: 当前分支没有上游，判断不了同步状态（rc=2）");
+  process.exit(2);
+}
+const upstream = (up.stdout || "").trim();
+const cnt = git("rev-list", "--left-right", "--count", upstream + "...HEAD");
+const parts = (cnt.stdout || "").trim().split(/\s+/).map(Number);
+const behind = parts[0] || 0, ahead = parts[1] || 0;
+if (ahead + behind > 0) {
+  console.error("sign: 本地与 " + upstream + " 不同步（领先 " + ahead + " / 落后 " + behind + "）");
+  console.error("  签一份别人取不到的指纹，等于只对这一份工作树成立。先推/先拉再签。");
+  process.exit(1);
+}
 // --head：签字只认这条口径（工作区口径会随运行态变）。
 const fp = spawnSync(process.execPath, [path.join(REPO, "bin", "fingerprint.mjs"), "--head"], { encoding: "utf8" });
 const total = (fp.stdout || "").match(/总指纹 ([0-9a-f]{32})/);
