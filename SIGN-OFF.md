@@ -203,3 +203,70 @@ node bin/fingerprint.mjs --selftest
 | --- | --- | --- | --- |
 | 复核方 | pi 插件2 `f15be404` | **重签**：`--head` 复算 `52ae7a1f` 与修改方报的逐字相同；verify rc=0；selftest rc=0；取前取后 0 行；两口径分得开有手验证据；点名的变异复现为不红 | 2026-11-25T10:05Z |
 | 修改方 | pi 插件 `9d80afea` | **已签**：`52ae7a1f`、verify rc=0、local = remote | 2026-11-25T09:52Z |
+
+
+## 重签（2026-11-25T10:19Z，判据修好之后）
+
+### 身份（`node bin/fingerprint.mjs --head` 现取，采样 2026-11-25T10:17:11Z）
+
+| 项 | 值 |
+| --- | --- |
+| 总指纹 | `bc3fbe03afac65e23688631875b13acf` |
+| 口径 | HEAD `986a481` |
+| 文件数 / 总字节 | 91 / 456,420 |
+| 取前取后 git status | 0 行 / 0 行 |
+
+上一版 `52ae7a1f` 作废（这一版改的是判据本身：基准从「工作区 total」换成「探针之前的 headBefore」，
+并抽出 `rowsOf` / `totalOf` 让两套计算同源）。
+
+### 判据（整条命令的 rc）
+
+```text
+npm run verify → rc=0
+  gate: 3 条判据（scripts 2 + 根 1），6 步（其中 3 步是 selftest），失败 0
+  verify-dtt: 元理论节齐、四件齐、反例逐行有、无过程词、脚本都在、签字栏在
+node bin/fingerprint.mjs --selftest → rc=0，三条 PASS
+```
+
+### 复核方自己跑的三件
+
+一、上一版恒绿的那条，现在会红（变异复现）
+
+```text
+把 --head 分支里的 ROOT = tmp; 改成 ROOT = REPO;
+node bin/fingerprint.mjs --selftest → rc=1
+  PASS  写了探针，工作区口径的指纹必须变
+  FAIL  探针在盘上时，HEAD 口径与探针之前相同（它不读工作区）
+  PASS  探针文件已按原字节恢复
+复原 → rc=0，status 0 行
+```
+
+上一版同一变异是 rc=0、FAIL 0 条。这一版红了，红的那条正是该红的。
+
+二、两套计算同源（结构核对，不看注释）
+
+```text
+grep -n "TOP_FILES" bin/fingerprint.mjs
+→ 第 90 行一处定义，第 112 行一处使用；selftest 不再自己 walk + 手拼 rows
+```
+
+三、sentry 的 TOP_FILES 是五个，没抄错
+
+```text
+const TOP_FILES = ["package.json", "tsconfig.json", "README.md", "settings.json", "SIGN-OFF.md"];
+```
+
+### 签字
+
+| 角色 | 会话 | 状态 | 时刻 |
+| --- | --- | --- | --- |
+| 复核方 | pi 插件2 `f15be404` | **重签**：`--head` 复算 `bc3fbe03` 与修改方报的逐字相同；verify rc=0；selftest rc=0；变异 rc=1 且红在该红的那条；取前取后 0 行 | 2026-11-25T10:19Z |
+| 修改方 | pi 插件 `9d80afea` | **已签**：`bc3fbe03`、verify rc=0、local = remote | 2026-11-25T10:16Z |
+
+### 未验证项（修改方明说，复核方确认它确实没做）
+
+「被签面应该包含哪些文件」只有人工判据：人看到文件数变了会不会追问。
+本次就是这样发现 guard 少扫了三份文档的（25 → 22，没人红，是人报数时看出来的）。
+
+要补机器判据，得在仓里存一份期望清单与 `filesOf` 的实际输出对拍——那本身是「同一真值两处各写一遍」。
+按本仓 P11 的形状，这条要么不做，要么连「清单与实现不同就必须红」一起做。目前没做，记为未验证。
