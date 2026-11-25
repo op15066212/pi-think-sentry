@@ -10,8 +10,8 @@
 
 | 角色 | 会话 | 已签（指纹 · 判据 · 取前取后） | 时刻 |
 | --- | --- | --- | --- |
-| 修改方 | 9d80afea | **已签**：`a5efe292d4649de7770d49475b4050e1`、npm run verify rc=0（246/246 + gate 6 条判据 12 步，失败 0）；README 与 SETTINGS 按当前代码重写；删 docs/guard-rules.md（与代码矛盾）；PR.md 加历史头注（其规则已删）；新增 check-dtt-fingerprint（指纹过期会红）；verify-dtt 的软坏样本改成按结构找格、取前取后 0 行 | 2026-11-25T16:52:05Z |
-| 复核方 | `f15be404` | 待签：等复核方对 `a5efe292d4649de7770d49475b4050e1` 复算 | — |
+| 修改方 | 9d80afea | **已签**：`525c5cadfc35bf03350d64dd56e9ba98`、npm run verify rc=0（210/210 + gate 6 条判据 12 步，失败 0）；删掉思维链注入（inject 模块、TEMPLATE_OF、exciseInjected、aho-corasick、旧形状迁移、inject-thinking-only 规则、4 个测试文件与 4 处用例、settings.json 的 inject 段）；修 settings.json 的 lang 形状（字符串被忽略，实际读默认值）、取前取后 0 行 | 2026-11-25T17:16:57Z |
+| 复核方 | `f15be404` | 待签：等复核方对 `525c5cadfc35bf03350d64dd56e9ba98` 复算（注入已删，见 HISTORY 2026-11-25 那条） | — |
 
 「已签对象」是那一刻的总指纹，不是 commit——commit 只是承载它的时刻。
 查证跑 `node bin/signoff-commits.mjs`，它把本文件与 `SIGN-OFF-LOG.md` 两份一起读成一列。
