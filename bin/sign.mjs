@@ -52,7 +52,8 @@ const at = new Date().toISOString().replace(/\.\d+Z$/, "Z");
 const session = (process.env.PIDECK_SESSION_ID || "").slice(0, 8) || "本机";
 
 // 表格行：指纹写完整 32 位。commit 只作参考——它承载指纹，不是被签对象。
-const row = "| " + role + " | " + session + " | **已签**：" + ` + total[1] + `
+const TICK = String.fromCharCode(96);
+const row = "| " + role + " | " + session + " | **已签**：" + TICK + total[1] + TICK
   + (detail ? "、" + detail : "")
   + "、取前取后 0 行 | " + at + " |";
 
