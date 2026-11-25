@@ -958,3 +958,5 @@ MODULES 里有 7 个：intercept dup lang signature strip inject bindingMod
 3. 「同一个语义写在两个地方」没有仓内机器判据。
 4. 注释说过时的话：md 端只有 check-doc-accuracy（只查键与路径，不查语义），.ts 端完全没有判据。
    本次靠删掉第二处（不写数量、写指向）规避，不是自动发现。
+
+| 修改方 | 9d80afea | **已签**：`bac3dd2706ff607251c41a09c756fdd6`、npm run verify rc=0（246/246 + gate 10 步 5 selftest）；check-rules-coverage 加 MODULES 与 features 双向对拍，selftest 1→4 条、取前取后 0 行 | 2026-11-25T15:31:32Z |
