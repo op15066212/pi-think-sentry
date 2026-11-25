@@ -87,6 +87,7 @@ const EXTS = new Set([".ts", ".mts", ".mjs", ".js", ".json"]);
 // 而注释写着「不进总指纹」、代码又把 settings.json 放进了 files。
 // 注释说 A，代码做 B——正是这一路在修的形状。现在它真的被用了。
 const VOLATILE = new Set(["settings.json", "SIGN-OFF.md", "package-lock.json"]);
+const TOP_FILES = ["package.json", "tsconfig.json", "README.md", "settings.json", "SIGN-OFF.md"];
 
 function walk(dir, out = []) {
   if (!fs.existsSync(dir)) return out;
@@ -102,32 +103,33 @@ function walk(dir, out = []) {
   return out;
 }
 
-const files = [];
-for (const d of DIRS) files.push(...walk(path.join(ROOT, d)));
-// 顶层配置文件也是行为的一部分
-// README 与 settings.json 也是行为的一部分：口径上限写在 README 里，开关写在 settings 里。
-// 不纳入指纹的话，双方认可的那份文档就没有身份，改一个字谁也看不出来。
-for (const f of ["package.json", "tsconfig.json", "README.md", "settings.json", "SIGN-OFF.md"]) {
-  const p = path.join(ROOT, f);
-  if (fs.existsSync(p)) files.push(p);
+/** 给一个根目录，返回进被签面的所有绝对路径。 */
+function filesOf(root) {
+  const out = [];
+  for (const d of DIRS) out.push(...walk(path.join(root, d)));
+  // 顶层配置文件也是行为的一部分：口径上限写在 README 里，开关写在 settings 里。
+  // 不纳入指纹的话，双方认可的那份文档就没有身份，改一个字谁也看不出来。
+  for (const f of TOP_FILES) {
+    const p = path.join(root, f);
+    if (fs.existsSync(p)) out.push(p);
+  }
+  return out;
 }
-// 不进总指纹，但要给身份：判红结果取决于 settings.json（prefix.on / run.on /
-// lang.dir / inline.min…）。只给文件名等于「指纹能证明代码是哪一版，证明不了
-// 那一刻跑的是哪套开关」。——2026-11-24 pi 插件2 指的最后一格。
-// 规则与本文件其他数字一致：任何数旁边印上它那份输入的 md5。
-const volatileShown = files
-  .filter((abs) => VOLATILE.has(path.basename(abs)))
-  .map((abs) => {
-    const raw = fs.readFileSync(abs);
-    // 与 rows 同一处理：行尾不参与身份
-    const data = Buffer.from(raw.toString("utf8").replace(/\r\n/g, "\n"), "utf8");
-    const h = crypto.createHash("md5").update(data).digest("hex").slice(0, 8);
-    return path.relative(ROOT, abs).replace(/\\/g, "/") + "  " + h + "  " + data.length + "B";
-  });
 
-const rows = files.filter((abs) => !VOLATILE.has(path.basename(abs)))
-  .map((abs) => {
-    const rel = path.relative(ROOT, abs).replace(/\\/g, "/");
+/**
+ * 给一个根目录，返回被签面的每一行 { rel, md5, bytes, lines }。
+ *
+ * 只有这一处算 row。2026-11-25（pi 插件2 指出）：--selftest 里原先自己又走一遍
+ * walk + 手拼 rows + 自己排序，而那一份**漏了行尾规范化**。
+ * 于是它算出来的数与主流程算的不是一个量，两个数天然不等，
+ * 「HEAD 口径必须不受工作区影响」那条用例拿两个不同源的数比较，恒真、恒绿。
+ * 抽成一个函数，主流程与 selftest 都调它，两个值才可能同源、才可能一起红。
+ */
+function rowsOf(root) {
+  const rows = [];
+  for (const abs of filesOf(root)) {
+    if (VOLATILE.has(path.basename(abs))) continue;
+    const rel = path.relative(root, abs).replace(/\\/g, "/");
     const raw = fs.readFileSync(abs);
     // 行尾规范化（2026-11-24，pi 插件2 抓到 cfa4b751 与 a2becc81 对不上之后查出来的根因）：
     // 本仓 core.autocrlf=true，同一次 commit 在不同的 checkout 之后，工作区字节数会差
@@ -139,48 +141,78 @@ const rows = files.filter((abs) => !VOLATILE.has(path.basename(abs)))
     // 修法是指纹只认内容不认行尾：先把 \r\n 规范成 \n 再算 md5 与字节。
     const buf = raw.toString("utf8").replace(/\r\n/g, "\n");
     const data = Buffer.from(buf, "utf8");
-    return {
+    rows.push({
       rel,
       md5: crypto.createHash("md5").update(data).digest("hex"),
       bytes: data.length,
       lines: buf.split("\n").length,
-    };
-  })
-  .sort((a, b) => a.rel.localeCompare(b.rel));
+    });
+  }
+  return rows.sort((a, b) => a.rel.localeCompare(b.rel));
+}
 
-// 总指纹：每行「rel:md5:bytes」按 rel 排序后拼起来再 md5。
-// 这样任何一个文件变一个字节，总指纹都变；两个文件互换内容，总指纹也变。
-const canonical = rows.map((r) => r.rel + ":" + r.md5 + ":" + r.bytes).join("\n");
-const total = crypto.createHash("md5").update(canonical).digest("hex");
+/** 一组 row 的总指纹：每行「rel:md5:bytes」按 rel 排序后拼起来再 md5。
+ *  任何一个文件变一个字节，总指纹都变；两个文件互换内容，总指纹也变。 */
+function totalOf(rows) {
+  return crypto.createHash("md5").update(rows.map((r) => r.rel + ":" + r.md5 + ":" + r.bytes).join("\n")).digest("hex");
+}
+
+const rows = rowsOf(ROOT);
+// 不进总指纹，但要给身份：判红结果取决于 settings.json（prefix.on / run.on /
+// lang.dir / inline.min…）。只给文件名等于「指纹能证明代码是哪一版，证明不了
+// 那一刻跑的是哪套开关」。——2026-11-24 pi 插件2 指的最后一格。
+// 规则与本文件其他数字一致：任何数旁边印上它那份输入的 md5。
+const volatileShown = filesOf(ROOT)
+  .filter((abs) => VOLATILE.has(path.basename(abs)))
+  .map((abs) => {
+    const raw = fs.readFileSync(abs);
+    // 与 rows 同一处理：行尾不参与身份
+    const data = Buffer.from(raw.toString("utf8").replace(/\r\n/g, "\n"), "utf8");
+    const h = crypto.createHash("md5").update(data).digest("hex").slice(0, 8);
+    return path.relative(ROOT, abs).replace(/\\/g, "/") + "  " + h + "  " + data.length + "B";
+  });
+
+const total = totalOf(rows);
 
 if (SELFTEST) {
-  // 这里必须用工作区口径算（USE_HEAD 为假）才有意义。
+  // 必须用工作区口径算（USE_HEAD 为假）才有意义。
   if (USE_HEAD) { console.error("fingerprint --selftest：不要与 --head 同用（rc=2）"); process.exit(2); }
   const probe = path.join(REPO, "README.md");
   const original = fs.readFileSync(probe);
-  let changedMd5 = "";
+  let changed = "";
+  let mHead = null;
+  // 探针写入**之前**先取一次 HEAD 口径。这是「不变」的基准。
+  // 不能拿工作区口径的 total 当基准：工作区可能有未提交改动，两者本来就不同，
+  // 那样比出来的差不是探针造成的，判据恒红。
+  const headBefore = (() => {
+    const r0 = spawnSync(process.execPath, [fileURLToPath(import.meta.url), "--head"], { encoding: "utf8" });
+    const m0 = (r0.stdout || "").match(/总指纹 ([0-9a-f]{32})/);
+    return m0 ? m0[1] : null;
+  })();
   try {
     fs.writeFileSync(probe, Buffer.concat([original, Buffer.from("\n<!-- fp-selftest-probe -->\n")]));
-    const now = [];
-    for (const d of DIRS) now.push(...walk(path.join(REPO, d)));
-    for (const f of ["package.json", "tsconfig.json", "README.md", "settings.json", "SIGN-OFF.md"]) {
-      const p2 = path.join(REPO, f);
-      if (fs.existsSync(p2)) now.push(p2);
-    }
-    const rows2 = now
-      .map((p2) => ({ rel: path.relative(REPO, p2).split(path.sep).join("/"), md5: crypto.createHash("md5").update(fs.readFileSync(p2)).digest("hex"), bytes: fs.statSync(p2).size }))
-      .filter((r) => !VOLATILE.has(r.rel))
-      .sort((a2, b2) => (a2.rel < b2.rel ? -1 : a2.rel > b2.rel ? 1 : 0));
-    changedMd5 = crypto.createHash("md5").update(rows2.map((r) => r.rel + ":" + r.md5 + ":" + r.bytes).join("\n")).digest("hex");
+    // 同一个函数、同一次进程：探针在盘上时工作区口径的值。
+    changed = totalOf(rowsOf(REPO));
+    // 探针还在盘上时跑子进程。这是关键：要测的是「它到底读不读工作区」，
+    // 就必须让工作区在被测那一刻是脏的。以前放在 finally 之后跑，
+    // 等于恢复干净了再问「你会不会被脏东西影响」——问不出东西来。
+    const r = spawnSync(process.execPath, [fileURLToPath(import.meta.url), "--head"], { encoding: "utf8" });
+    const m = (r.stdout || "").match(/总指纹 ([0-9a-f]{32})/);
+    mHead = m ? m[1] : null;
   } finally {
     fs.writeFileSync(probe, original);
   }
   const restored = fs.readFileSync(probe).equals(original);
-  const headFp = spawnSync(process.execPath, [fileURLToPath(import.meta.url), "--head"], { encoding: "utf8" });
-  const mHead = (headFp.stdout || "").match(/总指纹 ([0-9a-f]{32})/);
+
+  // 三条用例，比较基准只有一个：探针写入**之前**本进程算出的 total。
+  //
+  // 2026-11-25（pi 插件2 指出，第一次写错）：原来第二条拿 changed 与 mHead 比，
+  // 而 changed 是 selftest 自己走一遍算的、mHead 是子进程算的——两套代码、两个量，
+  // 天然不等，那条用例恒真恒绿。把 ROOT = tmp 改成 ROOT = REPO 也不红。
+  // 现在三条都对着同一个 total 比，变异才红得出来。
   const cases = [
-    ["改了工作区，工作区口径的指纹必须变", changedMd5 !== total],
-    ["HEAD 口径的指纹不受工作区影响", !mHead ? false : mHead[1] !== changedMd5],
+    ["写了探针，工作区口径的指纹必须变", changed !== total && changed !== ""],
+    ["探针在盘上时，HEAD 口径与探针之前相同（它不读工作区）", !mHead || !headBefore ? false : mHead === headBefore],
     ["探针文件已按原字节恢复", restored],
   ];
   let n = 0;
