@@ -60,7 +60,7 @@
 ## 配置
 
 一个文件：插件目录下的 `settings.json`，首次启动自动生成，之后不再覆盖。
-改完下一次 `session_start` 生效，不用重启。全部键与默认值见 `SETTINGS.md`。
+改完下一次事件前自动重读（按文件 mtime 判断，不靠 `session_start`），不用重启。全部键与默认值见 `SETTINGS.md`。
 
 六个模块：`intercept` / `dup` / `lang` / `signature` / `strip` / `binding`。
 默认值只有一处：`src/defaults.ts` 的 `DEFAULTS`。文档与它不一致时以代码为准，判据会告诉你哪边错。
