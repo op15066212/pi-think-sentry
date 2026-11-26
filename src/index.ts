@@ -8,7 +8,6 @@ import { validThreshold, MIN_FLOOR } from "./threshold.ts";
 import { TRUE_WORDS, FALSE_WORDS, rejectsOf, validUnit } from "./values.ts";
 import { detectBinding, label as bindingLabel, type Binding } from "./features/binding.ts";
 import { judgeThinking, judgeCfg, type JudgeCfg } from "./judges.ts";
-import strip from "./features/strip.ts";
 import intercept, { SAY_BLOCK, SAY_LANG } from "./features/intercept.ts";
 import { planSignatureCleanup, planSignatureCleanupIncremental, type CleanupState } from "./algo/signature.ts";
 
@@ -462,9 +461,8 @@ export default async function installGuard(pi: any) {
     if (entryKey !== "" && entryKey === lastEntryId) return;
     lastEntryId = entryKey;
 
-    // 改写的前提是读得出原文数组（2026-11-22 第二版）。不是数组时只记轮次，绝不改写：
-    // strip.clean 对非数组兜底成空数组，于是 withMark !== source 恒真，
-    // 会生成一条把消息内容清空的 context_edit——那是数据丢失，不是清洗。
+    // 只读原文数组做判据。不是数组就当没有可判的东西：记轮次、不动任何数据。
+    // （2026-11-22 第二版留下的护栏。折叠与写入都删掉之后，这里只剩「能不能判」的意义。）
     const source = Array.isArray(event?.message?.content) ? event.message.content : null;
     // turn_end 也包 try（2026-11-22 第二版）：message_update 早已包了，这里漏掉了——
     // 同一类「判据抛了就整段崩」在两条路径上必须有同一个收场。抛了仍然往下走：
@@ -485,32 +483,12 @@ export default async function installGuard(pi: any) {
       return;
     }
 
-    let content = source;
-    // 折到不红为止（2026-11-23，第五次）。
-    //
-    // 之前只折「最后一帧的判决」，于是：
-    //   一 一轮里两段不相邻的退化，只折后面那段；
-    //   二 模型退化后补一句正常话，最后一帧判干净，整轮就不折了。
-    // 现在的口径是一个循环：判当前内容 → 红就折 → 再判。直到判干净或用完预算。
-    // 这样不需要保存「哪一帧红过」——内容本身是唯一的真相，折完再判就是验收。
-    //
-    // 预算 5 次（Ax4 有界）：实测一段真实退化 1 次就干净；5 是余量不是估计。
-    // 每多一轮都是一次 O(n²) 的坍缩扫描，n≤539 时单次 < 5ms。
-    const STRIP_ROUNDS = 5;
-    if (c.strip.on) {
-      for (let round = 0; round < STRIP_ROUNDS; round++) {
-        let vv: any = null;
-        try { vv = judgeThinking(thinkingOf({ content }), jcfg); } catch { break; }
-        if (!vv || vv.kind === "none") break;
-        const r = strip.clean(content, vv, c.strip.min);
-        if (!r.cleaned) break;
-        content = r.content;
-        stats.cleaned++;
-        if (round === STRIP_ROUNDS - 1) {
-          trace("hook", { h: "turn_end", phase: "strip-budget-exhausted" });
-        }
-      }
-    }
+    // 2026-11-26 删掉了整段「折到不红为止」的循环。
+    // 它原来跑最多 5 轮 judgeThinking + strip.clean（每轮一次 O(n²) 坍缩扫描），
+    // 结果写进 content 然后落成 context_edit。注入停掉之后 content 再没有去处 ——
+    // 循环照跑、CPU 照烧、产出丢掉，只剩一个恒涨的 stats.cleaned 计数器。
+    // 判红这件事在上面的 v 与 stats.red 里已经记了；折叠现在没有观察对象。
+    // 反例（这条挡的）：把循环加回来 —— 每轮白烧 5 次 O(n²)，而界面上什么都不会变。
     redFrames = [];
 
     writeState();
