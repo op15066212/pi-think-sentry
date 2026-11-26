@@ -11,11 +11,23 @@ export function fakePi() {
   const hooks: Record<string, Function[]> = {};
   return { hooks, on(n: string, f: Function) { (hooks[n] ||= []).push(f); }, registerCommand() {} };
 }
-export const call = async (pi: any, name: string, event: any = {}) => {
+export const call = async (pi: any, name: string, event: any = {}, ctx: any = undefined) => {
   const out = [];
-  for (const fn of pi.hooks[name] || []) out.push(await fn(event));
+  for (const fn of pi.hooks[name] || []) out.push(await fn(event, ctx));
   return out;
 };
+
+// 2026-11-26：tool_call 改成**现场判** —— 从会话历史里取最后一条 assistant 的思考。
+// 所以测试不能再「先 message_update 推判决、再 tool_call 查」，而要直接给 tool_call 一份历史。
+// 这件事必须在 harness 里做一次，否则每个测试各造一遍假 ctx（Ax9：空间轴 / 实例轴）。
+export const ctxOf = (think: string) => ({
+  sessionManager: {
+    getEntries: () => [
+      { type: "message", id: "u1", parentId: null, message: { role: "user", content: [{ type: "text", text: "问" }] } },
+      { type: "message", id: "a1", parentId: "u1", message: { role: "assistant", content: [{ type: "thinking", thinking: think }] } },
+    ],
+  },
+});
 
 // 「判决还在吗」必须**直接观测**，不能靠「拦不拦」间接推断（R9）。
 //

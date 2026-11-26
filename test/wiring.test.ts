@@ -26,11 +26,20 @@ const fakePi = () => {
   const h: any = {};
   return { h, on(n: string, f: any) { (h[n] ||= []).push(f); }, registerCommand() {} };
 };
-const call = async (p: any, n: string, e: any = {}) => {
+const call = async (p: any, n: string, e: any = {}, ctx: any = undefined) => {
   const o = [];
-  for (const f of p.h[n] || []) o.push(await f(e));
+  for (const f of p.h[n] || []) o.push(await f(e, ctx));
   return o;
 };
+// tool_call 现在现场判：喂一份会话历史即可。
+const ctxOf = (think: string) => ({
+  sessionManager: {
+    getEntries: () => [
+      { type: "message", id: "u1", parentId: null, message: { role: "user", content: [{ type: "text", text: "问" }] } },
+      { type: "message", id: "a1", parentId: "u1", message: { role: "assistant", content: [{ type: "thinking", thinking: think }] } },
+    ],
+  },
+});
 
 test("judges 没有模块级可变状态：配置只能从参数进", () => {
   const src = fs.readFileSync(path.join(ROOT, "src/judges.ts"), "utf8");
@@ -43,9 +52,7 @@ test("配置文件里的 on:false 真的走到判据：dup 关掉时工具调用
   fs.writeFileSync(CFG, JSON.stringify({ dup: { on: false, min: 3 } }));
   const p = fakePi();
   await installGuard(p);
-  await call(p, "before_agent_start", {});
-  await call(p, "message_update", { message: msgOf("做。\n做。\n做。\n做。") });
-  const out = await call(p, "tool_call", {});
+  const out = await call(p, "tool_call", {}, ctxOf("做。\n做。\n做。\n做。"));
   assert.ok(!out.some((x: any) => x && x.block), "dup 关掉，判据不判红，工具调用照常");
 });
 
@@ -53,9 +60,7 @@ test("同一个开关打开时会被拦：这条是上一条的对照", async ()
   fs.writeFileSync(CFG, JSON.stringify({ dup: { on: true, min: 3 } }));
   const p = fakePi();
   await installGuard(p);
-  await call(p, "before_agent_start", {});
-  await call(p, "message_update", { message: msgOf("做。\n做。\n做。\n做。") });
-  const out = await call(p, "tool_call", {});
+  const out = await call(p, "tool_call", {}, ctxOf("做。\n做。\n做。\n做。"));
   assert.ok(out.some((x: any) => x && x.block), "dup 打开，重复行判红，工具调用被拦");
 });
 
@@ -63,8 +68,6 @@ test("投影的每个字段都有边：langDir 决定守哪边", async () => {
   fs.writeFileSync(CFG, JSON.stringify({ lang: { on: true, dir: "en" } }));
   const p = fakePi();
   await installGuard(p);
-  await call(p, "before_agent_start", {});
-  await call(p, "message_update", { message: msgOf("这是一段纯中文的思考，没有任何拉丁字母。") });
-  const out = await call(p, "tool_call", {});
+  const out = await call(p, "tool_call", {}, ctxOf("这是一段纯中文的思考，没有任何拉丁字母。"));
   assert.ok(out.some((x: any) => x && x.block), "守英文时纯中文要判红");
 });

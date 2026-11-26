@@ -306,134 +306,62 @@ export default async function installGuard(pi: any) {
   // 签名清理的水位：只处理「刚过期」的那几条，不每轮把历史重数一遍（2026-11-25）。
   // 与 stats 一样按会话归零：换会话时 entries 换了一套，旧水位没有意义。
   let sigState: CleanupState = { boundary: 0 };
-  let lastEntryId: any = null;
-  // 本次回答中途是否判红过。判红发生在工具调用前（回答还没结束），到 turn_end 时模型
-  // 往往已经改好了，那时再看 lastV 永远是 none——所以必须记「曾经」，不能记「最后」。
-  let sawRed = false;
-
-  pi.on("before_agent_start", async () => {
-    refresh();
-    lastThink = "";
-    lastV = null;
-    lastEntryId = null;
-    sigState = { boundary: 0 };
-    sawRed = false;
-    trace("hook", { h: "before_agent_start" });
-  });
-
-  // 每一帧都判。开哪个模块由 config 决定，judgeThinking 内部按开关走。
-  // 轮级粘性（2026-11-23）：本轮所有判红的帧，不在每帧覆盖。
+  // 2026-11-26 使用者把范围收到两个：「tool_call 拒绝执行」与「清 thinkingSignature」。
+  // 因此这里只注册**两个钩子**。删掉的是 before_agent_start 与 message_update：
+  // 前者只为重置帧级状态，后者每帧判一次（流式一段 1268 字符的思考会来几十帧）。
   //
-  // 为什么必须换（用户问「为什么可以绕过拦截」，答案是三处帧级假设）：
-  //   一 turn_end 里 outcome !== "completed" 直接 return → 被打断的那一轮不折叠，
-  //      退化文本原样进下一轮上下文；
-  //   二 lastV 是「最后一帧」的判决，模型退化之后补一句正常话，lastV 变 none → 拦不到；
-  //   三 只有 tool_call 拦，纯文本轮不碰工具就没有拦截点（turn_end 的折叠是事后补救）。
-  //
-  // 帧级 → 轮级：一次判红，整轮都算红。这不是 R11 删掉的「跨轮沿用」——
-  // 那是上一轮的记忆（误拦成百上千次），这是**同一轮内**的证据（真的退化过）。
-  let redFrames: { v: any; think: string }[] = [];
+  // 关键改动：判据从「每帧预判、tool_call 时查 lastV」改成 **tool_call 现场判**。
+  // 取的是会话历史里最后一条 assistant 的思考（ctx.sessionManager.getEntries），
+  // 判完立刻决定拦不拦 —— 判决与动作在同一次调用里完成，没有中间状态可漂移。
+  // 代价（写清楚）：不再有「流式过程中就发现退化」的提前量。收益：每帧一次判据的 CPU
+  // 没了，状态机也没了（原来那一堆 lastThink / lastV / redFrames / sawRed 都是为跨帧
+  // 传判决而存在，删掉钩子它们同时失去意义）。
 
-  pi.on("message_update", async (event: any, ctx: any) => {
-    syncBinding(ctx, cfg);
-    stats.judgeCalls++;
-    let think = "";
+  /** 会话历史里最后一条 assistant 消息的 thinking 原文。 */
+  const lastAssistantThinking = (entries: any[]): string => {
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const e = entries[i];
+      if (e?.type === "message" && e?.message?.role === "assistant") return thinkingOf(e.message);
+    }
+    return "";
+  };
+
+  pi.on("tool_call", async (_event: any, ctx: any) => {
+    const c = refresh();
+    syncBinding(ctx, c);
+    if (!c.intercept.on) return undefined;
+
+    const all: any[] = (ctx as any)?.sessionManager?.getEntries?.() ?? [];
+    const think = lastAssistantThinking(all);
+    // 没有思考可判就放行。空 thinking 是「思考已输出完、现在在出工具调用」，不是判决。
+    if (!think.trim()) return undefined;
+
     let v: any = null;
-    // trace 分三段：进、出、异常。此前只有一段，判据抛异常时那一行根本不打印，
-    // 于是「判据没跑」与「判据跑了判干净」在 stderr 上不可区分——RPC 测试读的正是 stderr。
-    // 取文本这一步也放进 try：畸形 message（content 的 getter 抛错）会让 handler 整段崩掉，
-    // 崩掉与「判了但干净」必须能分开。
     try {
-      think = thinkingOf(event?.message);
-      trace("hook", { h: "message_update", phase: "in", len: think.length });
-      // 空 thinking 是「思考已经输出完、现在在出工具调用」的那一帧，不是新的判决。
-      // 2026-11-23 实测（用户问「为什么没拦截」）：那一帧 judgeThinking("") 返回 none，
-      // 覆盖掉上一帧的判红，于是 tool_call 时 lastV 是干净的 → 拦不到。
-      // 台账证据：某会话 red=790 / blocked=7，绝大多数红根本没有对应的拦截机会。
-      // 清空判决的地方只有一个：before_agent_start（新一轮开始）。
-      if (!think.trim()) {
-        trace("hook", { h: "message_update", phase: "empty-keep" });
-        return;
-      }
       v = judgeThinking(think, jcfg);
     } catch (e: any) {
+      // 判据抛了就放行，但计数必须涨：非零说明有调用根本没判——
+      // 「判了但干净」与「没判」必须能分开，否则这个数没有意义。
       stats.judgeErrors++;
-      trace("hook", { h: "message_update", phase: "error", why: String(e?.message || e) });
-      return;
+      trace("hook", { h: "tool_call", phase: "error", why: String(e?.message || e) });
+      return undefined;
     }
-    // R12：删掉了「判据看不见这段就不更新判决」（opaque）。那是防御，不是判据。
-    // 判干净，但上次判红且本帧内容量不够 → 沿用上次红（防「抄两行 + 两行同上」凑数）。
-    // R10：这里的判据是**量**，不是形状。原来那层要求「整段一次复诵都没有」，
-    // 真实思考里几乎总有列表项重复，于是 17 段真实连续思考里 15 段永久沿用旧红。
-    // 门槛只由 dupMin 定：每行至少 8 个实质字符（R3 复核 b711ced1 的 L7/L8/L9）。
-    // R10 第二版（6e8dd769 的判据）：原来还乘了被复诵那一行的长度，
-    // 于是复诵一行 39 字符的 import 语句时门槛变成 117——**错误越长，改好越难**，
-    // 而「错误行有多长」与「要写多少新内容才算改了」没有关系。实测：91 字全新中文解除不了。
-    // R11：这里最后一点「沿用上一次判红」的机制也删掉了。
-    //
-    // 台账（ledger/judgments.jsonl）把三种门都否掉了，每一种都用真实数据：
-    //   一 字符量门（不同字符数 < 24 就沿用旧红）：thin 2678 次、真正的 block 0 次。
-    //      模型被拦之后第一反应是写得更短（"成功。极简调用通过。"），越短越拦。
-    //   二 复诵迹象门（当前有同一行 ≥2 次就沿用旧红）：真实的长思考里天然有成对的行
-    //      （列表项、对照项），实测第 5 帧那段正常复盘就被判成「凑数」。
-    //   三 两道门的共同问题：它们让判决有**两个来源**（当前思考 + 上次红的记忆），
-    //      而两个来源一定会分叉——一致性判据一开就红。
-    //
-    // 于是判决只留一个来源：当前这段思考判什么，就拦不拦。
-    // 代价写清楚：抄两行注入文案再补一句好话，或者三个占位词，现在都能过。
-    // 为什么接受：台账里 2639 次判红全是 ≥9 次的真复诵（414|11 出现 2227 次、634|10 出现 407 次），
-    // 一次也不是「低次数抄写」；而每一条防它的门都换来了成百上千次误拦。
-    // 判据仍抓 ≥ dupMin（默认 4）次的真复诵，那才是要治的病。
-    lastThink = think;
-    lastV = v;
-    if (v && v.kind !== "none") {
-      sawRed = true;
-      // 同一份思考只记一次。message_update 是**流式**的：一段 1268 字符的思考会来几十帧，
-      // 每帧判红就记一条，台账里于是同一条 red 连着出现 5 次（2026-11-23 实测：
-      // 时间戳 16:52:39.36x、len 1268、head 全同）。计数因此虚高，
-      // 「回合 237 / 红 70」读不出真实次数——观察面坏了，判据再好也看不出效果。
-      // 按文本比对去重：内容变了才记（模型真改了思考，那是新的一次判红）。
-      if (think !== lastRedThink) {
-        lastRedThink = think;
-        redFrames.push({ v, think });
-        ledger({ v: VERSION, ev: "red", len: think.length, kind: v.kind, rule: v.rule, reps: v.ev?.reps ?? null, blk: v.ev?.blk ?? null, head: think.slice(0, 160) });
-      }
-    }
-    trace("hook", { h: "message_update", phase: "out", kind: v?.kind ?? null, tag: v?.tag ?? null, forced: !!v?.forced });
-  });
 
-  // 判不合格就拦。冷却的键是**判决的身份**（这一块思考的文本），不是调用的身份（R9）。
-  //
-  // R5 时按 toolCallId 冷却，理由是「同一次调用被反复打回」。实测（数学组1）证明那个键
-  // 选错了：模型被拦之后写的是**同一段英文思考**，只是换了个 toolCallId 重试，
-  // 于是同一段思考被拦了三次，而模型的第一反应是 "Try a tool that isn't codemode?"
-  // ——它在找绕过，不是在改语言。判据变成了障碍。
-  //
-  // 键换成思考文本之后：同一段思考只拦一次；模型改了思考才再拦。
-  // 代价（明确写下）：模型硬顶着不改，第二次就放行。方向是对的——不许无限链（可停）。
-  // R12：删掉了冷却（同一段思考只拦一次、超出记 cooled）。那是防御——
-  // 挡的是「同一段思考被反复打回」。它一度还把状态冻在最早那一帧（ledger 实测 thin 2678 次）。
-  // 现在判决跟着当前思考走，模型改了就走、没改就还拦。没有次数上限，也没有冷却。
-  pi.on("tool_call", async (event: any) => {
-    const c = refresh();
-    // 拦截仍看**当前这段思考**（帧级），不是轮级粘性。
-    // 为什么（2026-11-23，测试「一致性：拦不拦必须与当前思考逐帧相等」钉住的）：
-    // 轮级拦会让模型改好之后仍被拦——它没法摆脱，实测它的反应是找绕过而不是改。
-    // R11 用台账数据推翻过一次，不该再推翻回来。
-    // 轮级只用于**清洗**（turn_end 折叠）：那不会让模型困住，只会让它看不到自己的退化文本。
-    const reason = intercept.reason(lastV, c.intercept.on);
-    const red = !!(lastV && lastV.kind !== "none");
-    if (red) stats.redCalls++;
-    trace("hook", { h: "tool_call", kind: lastV?.kind ?? null, blocked: !!reason });
-    if (!reason) { if (red) writeState(); return; }
+    const red = !!(v && v.kind !== "none");
+    if (red) { stats.red++; stats.redCalls++; }
+    trace("hook", { h: "tool_call", kind: v?.kind ?? null, len: think.length });
+
+    const reason = intercept.reason(v, c.intercept.on);
+    if (!reason) { if (red) writeState(); return undefined; }
+
     stats.blocked++;
     writeState();
-    ledger({ v: VERSION, ev: "block", len: lastThink.length, kind: lastV?.kind ?? null, reps: lastV?.ev?.reps ?? null, blk: lastV?.ev?.blk ?? null, head: lastThink.slice(0, 160) });
+    ledger({ v: VERSION, ev: "block", len: think.length, kind: v?.kind ?? null, reps: v?.ev?.reps ?? null, blk: v?.ev?.blk ?? null });
     return { block: true, reason };
   });
 
   pi.registerCommand?.("think-sentry", {
-    description: "pi-think-sentry：查看与修改五个功能的开关和参数",
+    description: "pi-think-sentry：查看与修改功能开关和参数",
     handler: async (args: any, ctx: any) => {
       const out = runCommand(args);
       ctx?.ui?.notify?.(out, "info");
@@ -442,87 +370,33 @@ export default async function installGuard(pi: any) {
     },
   });
 
+  // turn_end 只剩一件事：清 thinkingSignature（保留最近 keepTurns 轮）。
+  // 这一条是使用者 2026-11-24 明确要的，仍然写 context_edit —— 抹的是签名，不是内容。
   pi.on("turn_end", async (event: any, ctx: any) => {
     const c = refresh();
     syncBinding(ctx, c);
-    // 后端会拒或会静默丢：只记账，不写 context_edit。
-    if (!binding.capture) {
-      redFrames = [];   // 不介入也要清，否则跨轮泄漏（轮级容器的唯一生命周期点）
-      stats.skippedByBinding++;
-      trace("hook", { h: "turn_end", binding: bindingLabel(binding) });
-      return;
-    }
-    const outcome = event?.outcome ?? "unknown";
-    // 保持原契约：中断/失败的轮次不介入（tests 的「中断的轮次不介入」与「断掉的轮次不计入分母」）。
-    // 2026-11-23 我一度去掉这条，两条测试立刻红——它们是有意的：中断的轮次没有完整 message，
-    // 改写它要么无效，要么把一条本该丢弃的消息固化下来。
-    if (outcome !== "completed") { redFrames = []; trace("hook", { h: "turn_end", skip: outcome }); return; }
-    const entryKey = event?.messageEntryId || "";
-    if (entryKey !== "" && entryKey === lastEntryId) return;
-    lastEntryId = entryKey;
-
-    // 只读原文数组做判据。不是数组就当没有可判的东西：记轮次、不动任何数据。
-    // （2026-11-22 第二版留下的护栏。折叠与写入都删掉之后，这里只剩「能不能判」的意义。）
-    const source = Array.isArray(event?.message?.content) ? event.message.content : null;
-    // turn_end 也包 try（2026-11-22 第二版）：message_update 早已包了，这里漏掉了——
-    // 同一类「判据抛了就整段崩」在两条路径上必须有同一个收场。抛了仍然往下走：
-    // 不删行（v 是 null），注入照旧，轮次照记（否则分母少一条）。
-    let v: any = null;
-    try { v = judgeThinking(thinkingOf(event?.message), jcfg); }
-    catch (e: any) {
-            // R7 复核第二轮：两处混单位。拆成两个计数（轮级抛了也要看得见）。
-      stats.turnJudgeErrors++;
-      trace("hook", { h: "turn_end", phase: "error", why: String(e?.message || e) });
-    }
-    stats.turns++;
-    if (sawRed || (v && v.kind !== "none")) stats.red++;
-    trace("hook", { h: "turn_end", kind: v?.kind ?? null });
-    if (!source) {
-      writeState();
-      trace("hook", { h: "turn_end", phase: "skip-non-array" });
-      return;
-    }
-
-    // 2026-11-26 删掉了整段「折到不红为止」的循环。
-    // 它原来跑最多 5 轮 judgeThinking + strip.clean（每轮一次 O(n²) 坍缩扫描），
-    // 结果写进 content 然后落成 context_edit。注入停掉之后 content 再没有去处 ——
-    // 循环照跑、CPU 照烧、产出丢掉，只剩一个恒涨的 stats.cleaned 计数器。
-    // 判红这件事在上面的 v 与 stats.red 里已经记了；折叠现在没有观察对象。
-    // 反例（这条挡的）：把循环加回来 —— 每轮白烧 5 次 O(n²)，而界面上什么都不会变。
-    redFrames = [];
-
-    writeState();
-
-  const entries = [];
-    // 2026-11-26 用户决定：**这个插件不再注入任何内容**。
-    // 原来这里会把「折过的 content」写成一条 context_edit 落盘：
-    //   if (content !== source) entries.push({ type: "context_edit", ... })
-    // 哪怕加了幂等（alreadyWritten）之后仍然是本机最大的会话污染源之一 ——
-    // 一个 351MB 的会话里 305MB 是这类账本行，而它带来的收益只是「模型下一轮少看几段重复思考」。
-    // 决定之后的口径：strip 仍然跑（stats 与 trace 要用这些数），但**一个字节都不写盘**。
-    // 反例（这条挡的）：把它改回 entries.push —— 文件立刻回到 O(轮数) 增长。
-    // 清理 thinkingSignature，只保留最近 keepTurns 个大轮（2026-11-24 用户要的）。
-    // ctx.sessionManager.getEntries() 是唯一能拿到历史 entry 的接口；
-    // context_edit 的 targetId 能指向任意 entry，所以清历史不需要改 jsonl（B1 边界不变）。
+    // 分母只算走完的轮次：中断/报错的回答没有完整结果，计进去会低估拦截率。
+    if ((event?.outcome ?? "unknown") === "completed") stats.turns++;
+    const entries: any[] = [];
     if (c.signature.on) {
       try {
         // getEntries() 是唯一能拿到历史 entry 的接口；context_edit 的 targetId
         // 能指向任意 entry，所以清历史不需要改 jsonl（B1 边界不变）。
         const all: any[] = (ctx as any)?.sessionManager?.getEntries?.() ?? [];
-        // 增量版（2026-11-25）：幂等修好后第二轮起产出恒为 0，全量扫 26000 条要 4.4ms，
-        // 每轮都白扫。水位停在「上一次的过期区右端」，跨会话归零（见 sigState）。
-        // 与全量版等价，判据在 test/signatureIncremental.test.ts。
+        // 增量版：幂等修好后第二轮起产出恒为 0，全量扫 26000 条要 4.4ms。
+        // 水位停在「上一次的过期区右端」，跨会话归零（见 sigState）。
         const inc = planSignatureCleanupIncremental(all, c.signature.keepTurns, sigState);
         sigState = inc.state;
-        const edits = inc.edits;
-        for (const ed of edits) entries.push(ed);
-        if (edits.length) trace("hook", { h: "turn_end", phase: "signature", cleaned: edits.length });
+        for (const ed of inc.edits) entries.push(ed);
+        if (inc.edits.length) trace("hook", { h: "turn_end", phase: "signature", cleaned: inc.edits.length });
       } catch (e: any) {
         // 清签名失败不该影响这一轮的其它提案：记一笔，继续。
         trace("hook", { h: "turn_end", phase: "signature-error", why: String(e?.message || e) });
       }
     }
-    if (!entries.length) return;
+    // 落一次状态：turns 是分母，只在内存里加就等于「本轮没发生过」。
+    writeState();
+    if (!entries.length) return undefined;
     // 返回 entries 会替换掉「这一轮已经提案的那些」，不是追加（pi 文档：returning entries or
     // continue replaces only that field）。所以必须显式带上 event.entries，否则同时装了别的
     // turn_end 扩展时，它们的提案会被整段盖掉——不是报错，是安静地不生效。

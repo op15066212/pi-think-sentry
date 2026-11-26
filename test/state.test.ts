@@ -23,11 +23,20 @@ function fakePi() {
   const hooks: Record<string, Function[]> = {};
   return { hooks, on(n: string, f: Function) { (hooks[n] ||= []).push(f); }, registerCommand() {} };
 }
-const call = async (pi: any, name: string, event: any = {}) => {
+const call = async (pi: any, name: string, event: any = {}, ctx: any = undefined) => {
   const out = [];
-  for (const fn of pi.hooks[name] || []) out.push(await fn(event));
+  for (const fn of pi.hooks[name] || []) out.push(await fn(event, ctx));
   return out;
 };
+// tool_call 现在现场判：给它一份会话历史即可，不再先推判决。
+const ctxOf = (think: string) => ({
+  sessionManager: {
+    getEntries: () => [
+      { type: "message", id: "u1", parentId: null, message: { role: "user", content: [{ type: "text", text: "问" }] } },
+      { type: "message", id: "a1", parentId: "u1", message: { role: "assistant", content: [{ type: "thinking", thinking: think }] } },
+    ],
+  },
+});
 const msgOf = (thinking: string) => ({ content: [{ type: "thinking", thinking }] });
 
 test("state.json 是坏 JSON：拦截照常发生，只有计数从头开始", async () => {
@@ -35,8 +44,7 @@ test("state.json 是坏 JSON：拦截照常发生，只有计数从头开始", a
   const pi = fakePi();
   await installGuard(pi);
 
-  await call(pi, "message_update", { message: msgOf("做。\n做。\n做。\n做。") });
-  const out = await call(pi, "tool_call", {});
+  const out = await call(pi, "tool_call", {}, ctxOf("做。\n做。\n做。\n做。"));
   const blocked = out.some((x: any) => x && x.block);
   assert.equal(blocked, true, "读数失败不能把拦截一起关掉");
   assert.ok(stats.blocked >= 1, "计数从 0 起也算对，但拦下这件事必须被记上");
@@ -47,8 +55,7 @@ test("state.json 合法时，别的会话的计数会被保留", async () => {
   fs.writeFileSync(TMP_STATE, JSON.stringify({ other: { judgeCalls: 999, blocked: 7, at: now } }));
   const pi = fakePi();
   await installGuard(pi);
-  await call(pi, "message_update", { message: msgOf("做。\n做。\n做。\n做。") });
-  await call(pi, "tool_call", {});
+  await call(pi, "tool_call", {}, ctxOf("做。\n做。\n做。\n做。"));
 
   const back = readState();
   assert.ok(back.other, "文件合法时，写盘不许把别的会话冲掉");
@@ -62,8 +69,7 @@ test("同一条会话说清楚代价：只有文件损坏时才会丢别的会�
   fs.writeFileSync(TMP_STATE, "{ 坏掉 }");
   const pi = fakePi();
   await installGuard(pi);
-  await call(pi, "message_update", { message: msgOf("做。\n做。\n做。\n做。") });
-  await call(pi, "tool_call", {});
+  await call(pi, "tool_call", {}, ctxOf("做。\n做。\n做。\n做。"));
   const back = readState();
   assert.equal(back.other, undefined, "坏文件时别的会话确实会丢——已知代价");
 });
@@ -77,15 +83,13 @@ test("两个会话键共用一个状态文件：各写各的，换会话不复�
   const pi1 = fakePi();
   await installGuard(pi1);
   await call(pi1, "before_agent_start", {});
-  await call(pi1, "message_update", { message: msgOf("做。\n做。\n做。\n做。") });
-  await call(pi1, "tool_call", {});
+  await call(pi1, "tool_call", {}, ctxOf("做。\n做。\n做。\n做。"));
 
   process.env.CURB_SESSION_KEY = "BBB";
   const pi2 = fakePi();
   await installGuard(pi2);
   await call(pi2, "before_agent_start", {});
-  await call(pi2, "message_update", { message: msgOf("做。\n做。\n做。\n做。") });
-  await call(pi2, "tool_call", {});
+  await call(pi2, "tool_call", {}, ctxOf("做。\n做。\n做。\n做。"));
   await call(pi2, "turn_end", { outcome: "completed", messageEntryId: "b1", message: msgOf("改好了。") });
 
   const back = readState();

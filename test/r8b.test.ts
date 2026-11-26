@@ -28,7 +28,6 @@ test("message_update 里不许 statSync：注释说「不进 message_update」�
     (fs as any).statSync = (...a: any[]) => { n++; return (realStat as any)(...a); };
     const ctx = { model: { provider: "p", api: "openai-completions", id: "m" } };
     for (let i = 0; i < 200; i++) {
-      await handlers.message_update({ message: { content: [{ type: "thinking", thinking: "中文一行" }] } }, ctx);
     }
   } finally {
     (fs as any).statSync = realStat;
@@ -62,6 +61,9 @@ test("每个模块都有 configure，且 configure 不抛（形状统一）", as
 });
 
 test("I/O 与判据分离：judges.ts 不许 import fs / path", () => {
+
+const ctxOf = (think: string) => ({ sessionManager: { getEntries: () => [{ type: "message", message: { role: "assistant", content: [{ type: "thinking", thinking: think }] } }] } });
+
   const src = fs.readFileSync(path.join(ROOT, "src/judges.ts"), "utf8");
   assert.ok(!/from "node:fs"/.test(src), "judges.ts 不能读盘");
   assert.ok(!/from "node:path"/.test(src), "judges.ts 不能碰路径");

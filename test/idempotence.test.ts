@@ -8,20 +8,14 @@
 // 本文件把「每个可变内容的地方都幂等」变成可跑的红/绿，而不是靠读代码。
 import test from "node:test";
 import assert from "node:assert/strict";
-import { settle } from "../../pi-escape-guard/src/scan.ts";
 import strip from "../src/features/strip.ts";
 import { judgeThinking } from "../src/judges.ts";
 
 const MARK = "\n[已改：语言]";
 
-test("escape-guard settle 幂等：还原过的文本再跑一遍不变", () => {
-  const dirty = "开头正文：\\u4f60\\u53ef\\u4ee5\\u5e2e\\u6211\\u5417";
-  const once = settle(dirty, 3);
-  assert.equal(once.ok, true);
-  assert.notEqual(once.out, dirty, "坏样本：这条必须真的被还原，否则下面一句恒绿");
-  const twice = settle(once.out, 3);
-  assert.equal(twice.out, once.out);
-});
+// 2026-11-26：原来这里有一条「escape-guard 的 settle 幂等」。
+// settle 已随「只保留 tool_call 与拒绝执行」整条删除，那条的观察对象不存在，
+// 跨仓引用也一并断掉。本文件其余部分（strip / signature 的幂等）不受影响。
 
 test("strip 一轮就到定点：判红 → 清 → 再判，第二轮不再改", () => {
   const dup = ["同一句", "同一句", "同一句", "同一句", "另一句"].join("\n");
