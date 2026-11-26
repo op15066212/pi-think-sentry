@@ -10,6 +10,7 @@ import { detectBinding, label as bindingLabel, type Binding } from "./features/b
 import { judgeThinking, judgeCfg, type JudgeCfg } from "./judges.ts";
 import intercept, { SAY_BLOCK, SAY_LANG } from "./features/intercept.ts";
 import { planSignatureCleanup, planSignatureCleanupIncremental, type CleanupState } from "./algo/signature.ts";
+import { branchEntries } from "./algo/branch.ts";
 
 export { SAY_BLOCK, SAY_LANG };
 
@@ -311,11 +312,12 @@ export default async function installGuard(pi: any) {
   // 前者只为重置帧级状态，后者每帧判一次（流式一段 1268 字符的思考会来几十帧）。
   //
   // 关键改动：判据从「每帧预判、tool_call 时查 lastV」改成 **tool_call 现场判**。
-  // 取的是会话历史里最后一条 assistant 的思考（ctx.sessionManager.getEntries），
+  // 取的是当前分支里最后一条 assistant 的思考（branchEntries，不是文件全集），
   // 判完立刻决定拦不拦 —— 判决与动作在同一次调用里完成，没有中间状态可漂移。
   // 代价（写清楚）：不再有「流式过程中就发现退化」的提前量。收益：每帧一次判据的 CPU
   // 没了，状态机也没了（原来那一堆 lastThink / lastV / redFrames / sawRed 都是为跨帧
   // 传判决而存在，删掉钩子它们同时失去意义）。
+
 
   /** 会话历史里最后一条 assistant 消息的 thinking 原文。 */
   const lastAssistantThinking = (entries: any[]): string => {
@@ -331,7 +333,7 @@ export default async function installGuard(pi: any) {
     syncBinding(ctx, c);
     if (!c.intercept.on) return undefined;
 
-    const all: any[] = (ctx as any)?.sessionManager?.getEntries?.() ?? [];
+    const all: any[] = branchEntries(ctx);
     const think = lastAssistantThinking(all);
     // 没有思考可判就放行。空 thinking 是「思考已输出完、现在在出工具调用」，不是判决。
     if (!think.trim()) return undefined;
@@ -380,9 +382,9 @@ export default async function installGuard(pi: any) {
     const entries: any[] = [];
     if (c.signature.on) {
       try {
-        // getEntries() 是唯一能拿到历史 entry 的接口；context_edit 的 targetId
+        // branchEntries() 取当前分支（不是文件全集）；context_edit 的 targetId
         // 能指向任意 entry，所以清历史不需要改 jsonl（B1 边界不变）。
-        const all: any[] = (ctx as any)?.sessionManager?.getEntries?.() ?? [];
+        const all: any[] = branchEntries(ctx);
         // 增量版：幂等修好后第二轮起产出恒为 0，全量扫 26000 条要 4.4ms。
         // 水位停在「上一次的过期区右端」，跨会话归零（见 sigState）。
         const inc = planSignatureCleanupIncremental(all, c.signature.keepTurns, sigState);
