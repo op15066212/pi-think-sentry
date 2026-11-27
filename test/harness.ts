@@ -34,7 +34,9 @@ export const ctxOf = (think: string) => ({
 // 此前所有绕过测试都用 tool_call 的返回值当判决的观测口。冷却键改成思考文本之后，
 // 同一段思考只拦一次，于是那个观测口失真了——它测的变成「拦了几次」，不再是「判决有没有被洗掉」。
 // 这是表示的问题，不是测试的问题：旧表示把「判决」与「动作」映成同一个值，分不开。
-// redCalls 在 tool_call 入口按 lastV 自增，与冷却无关，用它。
+// redCalls 在 tool_call 入口直接自增（src/index.ts 的 stats.redCalls++），与冷却无关，用它。
+// 2026-11-27 修正：这里原来写「按 lastV 自增」，而 lastV 已随那一版每帧预判一起删掉——
+// 注释指向一个不存在的变量，读的人会去找它。
 export async function redCalls(): Promise<number> {
   const mod: any = await import("../src/index.ts");
   return mod.stats.redCalls;

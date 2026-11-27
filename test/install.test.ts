@@ -78,7 +78,8 @@ test("碎片：工具调用之前拦一次，原因含词与次数", async () =>
 
 test("语言：整段英文之后工具调用照样拦，给的是语言处方", async () => {
   // 2026-11-18 重启后实测：拦是拦了，理由却是「同一行出现了 ? 次」后面空白。
-  // 原因是 STREAM 只把 strip 记进 lastV，retract 没记，tool_call 处拿不到判据。
+  // 原因是当时 STREAM 只把 strip 记进那份跨帧缓存，retract 没记，tool_call 处拿不到判据。
+  // （那份缓存 lastV 已于 2026-11-27 随每帧预判一起删掉，改成 tool_call 现场判；这条留着说明当时形态。）
   resetCooldown();
   const pi = fakePi();
   await installGuard(pi);
