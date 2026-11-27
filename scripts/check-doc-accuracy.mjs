@@ -10,6 +10,7 @@
 // rc: 0 全对得上｜1 有对不上的｜2 文档目录缺失
 import fs from "node:fs";
 import { DEFAULTS } from "../src/defaults.ts";
+import { RULES } from "../src/meta.ts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -173,6 +174,43 @@ export function jsonDefaultsMismatch(text, defaults) {
   for (const k of Object.keys(got)) if (!(k in want)) bad.push("JSON 全文有 DEFAULTS 里没有的键 " + k);
   return bad;
 }
+
+/** README 里「一共 N 条（A 条产生判决，B 条是机制约束）」这类写死的数，必须等于 RULES 的实际分布。
+ *
+ *  2026-11-27 实测缺口：README 写「一共七条（两条产生判决，五条是机制约束）」，
+ *  而 src/meta.ts 的 RULES 实际是 6 条（2 verdict + 4 mechanism）。
+ *  也就是说文档一直多报一条，check-doc-accuracy 只说「对不上 0 处」——
+ *  因为它只查配置键与路径，不查这种写死的数。
+ *
+ *  这条与「SETTINGS 默认值对拍」是同一族：**写死的数只要有一处能对拍，它就是判据；
+ *  没有对拍，它就是注释。**
+ *
+ *  返回问题列表；纯函数，坏样本直接喂。 */
+export function rulesCountMismatch(text, rules) {
+  const out = [];
+  const verdict = rules.filter((r) => r.kind === "verdict").length;
+  const mech = rules.filter((r) => r.kind === "mechanism").length;
+  const total = rules.length;
+  const cn = { 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10, 十一: 11, 十二: 12 };
+  const parse = (s) => {
+    if (/^\d+$/.test(s)) return Number(s);
+    return Object.prototype.hasOwnProperty.call(cn, s) ? cn[s] : null;
+  };
+  // 句子形状：一共 N 条（A 条产生判决，B 条是机制约束）
+  const m = text.match(/一共\s*([0-9一二两三四五六七八九十]+)\s*条[（(]\s*([0-9一二两三四五六七八九十]+)\s*条产生判决[，,]\s*([0-9一二两三四五六七八九十]+)\s*条是机制约束/);
+  if (!m) {
+    out.push("找不到「一共 N 条（A 条产生判决，B 条是机制约束）」这句：规则条数没有被声明，谁都改不了它");
+    return out;
+  }
+  const got = [parse(m[1]), parse(m[2]), parse(m[3])];
+  const want = [total, verdict, mech];
+  const names = ["总数", "产生判决", "机制约束"];
+  for (let i = 0; i < 3; i++) {
+    if (got[i] === null) { out.push(names[i] + "写成了「" + m[i + 1] + "」，不是可比的数"); continue; }
+    if (got[i] !== want[i]) out.push(names[i] + "：文档写 " + got[i] + "，RULES 实际 " + want[i]);
+  }
+  return out;
+}
 export function check(docs = DOCS, root = here) {
   const problems = [];
   for (const doc of docs) {
@@ -183,6 +221,11 @@ export function check(docs = DOCS, root = here) {
       if (!cfgKeys.has(leaf)) problems.push(rel + "：配置键 " + k + " 在 config.ts / defaults.ts 里不存在");
     }
     // 默认值对拍：只在 SETTINGS.md 上做（它是唯一声明默认值的那份文档）。
+
+    // 规则条数对拍：只在 README 上做（它是唯一声明条数的那份文档）。
+    if (rel.endsWith("README.md")) {
+      for (const b of rulesCountMismatch(text, RULES)) problems.push(rel + "：" + b);
+    }
     if (rel.endsWith("SETTINGS.md")) {
       // 两处都验：模块表格（人能读的那处）与 JSON 全文（能直接粘贴的那处）。
       for (const b of defaultsMismatch(text, DEFAULTS)) problems.push(rel + "：" + b);
@@ -218,6 +261,13 @@ if (import.meta.main && process.argv.includes("--selftest")) {
   const jm = jsonDefaultsMismatch("```json\n{ \"dup\": { \"on\": true, \"min\": 3 } }\n```\n", { dup: { on: true, min: 4 } });
   const jg = jsonDefaultsMismatch("```json\n{ \"dup\": { \"on\": true, \"min\": 4 } }\n```\n", { dup: { on: true, min: 4 } });
   const jbroken = jsonDefaultsMismatch("```json\n{ \"dup\": { \"on\": true }\n```\n", { dup: { on: true, min: 4 } });
+  // 条数对拍用的假规则集：两条 verdict + 四条 mechanism，与真实 RULES 同形但独立。
+  // 用假的而不是读真实 RULES——读真实的话，有人改了 RULES 这条样本就失去意义。
+  const SIX = [
+    { id: "a", kind: "verdict" }, { id: "b", kind: "verdict" },
+    { id: "c", kind: "mechanism" }, { id: "d", kind: "mechanism" },
+    { id: "e", kind: "mechanism" }, { id: "f", kind: "mechanism" },
+  ];
   const checks = [
     ["文档默认值与代码不同 → 必须红", dm.length > 0, true],
     ["文档默认值与代码相同 → 必须绿", dg.length === 0, true],
@@ -227,11 +277,18 @@ if (import.meta.main && process.argv.includes("--selftest")) {
     ["配置小节里写了已删的键 strict → 必须红", badProblems.length > 0, true],
     ["配置小节里只写真实键 → 必须绿", goodProblems.length === 0, true],
     ["非配置小节的表首格是度量名 → 必须绿（这是那 9 处误报的形状）", metricProblems.length === 0, true],
+    // 规则条数对拍（2026-11-27）。样本用「两」而不是「二」——第一版正则只收了「二」，
+    // 于是 README 那句「两条产生判决」匹配不上，判据报「找不到那句」。
+    // 中文数字里 2 有两种写法，漏一种就等于漏一半。
+    ["条数写对（六条=两+四）→ 必须绿", rulesCountMismatch("一共六条（两条产生判决，四条是机制约束）", SIX).length === 0, true],
+    ["条数写成七条 → 必须红", rulesCountMismatch("一共七条（两条产生判决，五条是机制约束）", SIX).length > 0, true],
+    ["条数用阿拉伯数字也要认（6/2/4）→ 必须绿", rulesCountMismatch("一共6条（2条产生判决，4条是机制约束）", SIX).length === 0, true],
+    ["整句不见了 → 必须红（条数没人声明）", rulesCountMismatch("没有任何条数声明", SIX).length > 0, true],
   ];
   let n = 0;
   for (const c of checks) { const ok = c[1] === c[2]; if (!ok) n++; console.log((ok ? "PASS" : "FAIL") + "  " + c[0] + "（得 " + c[1] + "）"); }
   fs.rmSync(tmp, { recursive: true, force: true });
-  console.log(n === 0 ? "selftest: 坏样本红、好样本绿" : "selftest: " + n + " 条不符");
+  console.log(n === 0 ? "selftest: " + checks.length + " 条全对" : "selftest: " + n + " 条不符");
   process.exit(n === 0 ? 0 : 1);
 }
 
