@@ -48,6 +48,21 @@ export type Rule = "dup" | "inline" | "lang" | "run" | "shape";
 /** 构造子的穷尽清单。顺序即文档顺序，不再单独维护一份 KINDS 字符串数组。 */
 export const KINDS: readonly Kind[] = ["none", "strip", "retract"];
 
+/** 处置强度：多条判据同时成立时，报强度最高的那条。
+ *
+ *  这是**设计声明**，不是从代码里测出来的。理由是处置的不可逆程度：
+ *    retract  这一轮不采用 —— 整轮的输出都不进上下文，代价最大也最彻底
+ *    strip    删掉若干行   —— 只改认定的那几行，其余保留
+ *    none     不动
+ *  所以 3 > 2 > 0。要推翻它，需要造出「某场景下 strip 比 retract 更该赢」的输入；
+ *  至今没造出来，按未验证记（写在 check-rules-coverage 的注释里）。
+ *
+ *  放在这里的原因：它与 KINDS 是同一件事的两面（有哪些构造子 / 它们怎么比），
+ *  分两个文件写就会分叉——而分叉之后矩阵会静默按 0 处理新构造子，不报错。
+ *  判据：check-rules-coverage 验「KINDS 与 STRENGTH 的键集合相等」。
+ */
+export const STRENGTH: Record<Kind, number> = { none: 0, strip: 2, retract: 3 };
+
 /** RuleOf：每个 kind 允许哪些来源。表即证明——不在这张表里的组合 parse 直接抛。 */
 const RULE_OF: Record<Kind, readonly Rule[]> = {
   none: ["dup", "inline", "lang", "run", "shape"],
