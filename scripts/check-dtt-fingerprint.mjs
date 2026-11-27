@@ -30,8 +30,7 @@ export function check(signPath, current) {
   return [];
 }
 
-const norm = (x) => String(x || "").replace(/\\/g, "/");
-const isMain = !!process.argv[1] && norm(fileURLToPath(import.meta.url)) === norm(process.argv[1]);
+const isMain = import.meta.main;
 
 if (isMain && process.argv.includes("--selftest")) {
   // 四份自造样本：与工作区无关，改 README 不会让 selftest 摇晃。
