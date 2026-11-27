@@ -9,7 +9,7 @@ import { TRUE_WORDS, FALSE_WORDS, rejectsOf, validUnit } from "./values.ts";
 import { detectBinding, label as bindingLabel, type Binding } from "./features/binding.ts";
 import { judgeThinking, judgeCfg, type JudgeCfg } from "./judges.ts";
 import intercept, { SAY_BLOCK, SAY_LANG } from "./features/intercept.ts";
-import { planSignatureCleanup, planSignatureCleanupIncremental, type CleanupState } from "./algo/signature.ts";
+import { planSignatureCleanupIncremental, type CleanupState } from "./algo/signature.ts";
 import { branchEntries } from "./algo/branch.ts";
 
 export { SAY_BLOCK, SAY_LANG };
