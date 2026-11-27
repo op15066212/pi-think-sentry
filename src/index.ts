@@ -132,22 +132,20 @@ const applyCfg = (c: any) => {
   });
   return c;
 };
-// 最后一帧的文本与判决：搬到模块级，是为了让 refresh 在配置变化时能重算（2026-11-22 第三版）。
-// 此前它们是 install 的闭包变量，配置变了以后旧判决照样被 tool_call 使用——
-// 同一次调用里「开关是新配置、判决是旧配置」（实测：手改 dup.min 3→5，仍拦）。
-let lastThink = "";
-let lastV: any = null;
-// 上一次记进台账的判红文本。message_update 是流式的，同一段思考会来几十帧，
-// 不去重就会把帧数当次数（2026-11-23 实测：同一条 red 连记 5 次，时间戳与 head 全同）。
-let lastRedThink = "";
+// 2026-11-27 删掉三个死状态：lastThink / lastV / lastRedThink。
+// 它们来自 2026-11-22 那一版（每帧预判、tool_call 时查 lastV）。
+// 判据改成 tool_call 现场判之后，本文件第 318 行附近的注释已经写着「原来那一堆
+// lastThink / lastV / redFrames / sawRed 都没了」——注释说删了，变量还在，而且没人发现：
+//   lastThink     只在声明处 = ""，从不写非空  → 恒空
+//   lastV         只在 if (lastThink) 里写     → 那个分支永不执行，恒 null
+//   lastRedThink  只在声明处 = ""              → 恒空
+// 发现它的是一条新判据（check-rules-coverage 的 staleModuleState）：
+// 模块级 let 若除声明处没有任何赋值，它就恒等于初值——那要么是死状态，要么该写 const。
 const refresh = () => {
   const m = statStamp();
   if (m === cfgStamp && cfg) return cfg;
   cfgStamp = m;
   applyCfg(readConfig());
-  // 配置变了：上一帧的判决是用旧配置算出来的，必须用新配置重算，不能沿用。
-  // 重算而不是清空，是因为文本还在——清空会造出「改配置即绕过拦截」的窗口。
-  if (lastThink) lastV = judgeThinking(lastThink, jcfg);
   trace("hook", { h: "config", reload: true, stamp: m });
   return cfg;
 };
