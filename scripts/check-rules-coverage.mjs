@@ -120,13 +120,18 @@ export function ruleMatrix(rules, judgesMod, samples, strength) {
       want = top;
     }
 
-    // 意图核对：写了的 expect 必须真的单独成立；expect 为 null 时不该有任何规则成立。
-    if (s.expect === null) {
+    // 意图核对：写了的 expectFiring 必须真的**单独成立**；为 null 时不该有任何规则成立。
+    //
+    // 为什么叫 expectFiring 而不是 expect（2026-11-27）：原来叫 expect，读起来像「期望的判决」。
+    // 我自己被绊了一次——样本「英文长句复诵 5 行」写着 dup，实测判决却是 retract/lang，
+    // 我一度以为判据与强度表矛盾。真相是它只声明「dup 应当成立」，没说 dup 该赢；
+    // 胜者由强度表算（want），再与组合判据比对。名字不准，会让人按错的意思去读红。
+    if (s.expectFiring === null) {
       if (firing.length) out.push("样本 " + s.name + "：意图「不该有任何规则成立」，但 " + firing.map((f) => f.rule).join("/") + " 单独成立了");
       continue;
     }
-    if (s.expect !== undefined && !firing.some((f) => f.rule === s.expect)) {
-      out.push("样本 " + s.name + "：意图让 " + s.expect + " 成立，实际单独成立的有 " + (firing.map((f) => f.rule).join("/") || "无"));
+    if (s.expectFiring !== undefined && !firing.some((f) => f.rule === s.expectFiring)) {
+      out.push("样本 " + s.name + "：意图让 " + s.expectFiring + " 成立，实际单独成立的有 " + (firing.map((f) => f.rule).join("/") || "无"));
       continue;
     }
 
@@ -210,14 +215,14 @@ export async function check(dir = here) {
   const verdictMod = await import(pathToFileURL(path.join(src, "verdict.ts")).href);
   const STRENGTH = verdictMod.STRENGTH || {};
   const SAMPLES = [
-    { name: "中文复诵 4 行（只该 dup）", expect: "dup", text: ["做。", "做。", "做。", "做。"].join(NL3) },
-    { name: "整块英文不重复（只该 lang）", expect: "lang", text: [
+    { name: "中文复诵 4 行（只该 dup）", expectFiring: "dup", text: ["做。", "做。", "做。", "做。"].join(NL3) },
+    { name: "整块英文不重复（只该 lang）", expectFiring: "lang", text: [
       "I should read the config file first.",
       "Then check the parsed values.",
       "After that I will write the summary.",
       "Finally I will run the tests.",
     ].join(NL3) },
-    { name: "中文正常写作（都不该成立）", expect: null, text: [
+    { name: "中文正常写作（都不该成立）", expectFiring: null, text: [
       "先读配置文件。",
       "再看解析出来的值。",
       "然后写总结。",
@@ -225,7 +230,7 @@ export async function check(dir = here) {
     ].join(NL3) },
     // 冲突类：不复用 check-judge-order 的输入（那三条是同一批形状），这里换长度与语序，
     // 让两处样本表不同源——否则改一张表两条判据一起变，那是一条判据不是两条。
-    { name: "英文长句复诵 5 行（dup 与 lang 都成立）", expect: "dup", text: [
+    { name: "英文长句复诵 5 行（dup 与 lang 都成立）", expectFiring: "dup", text: [
       "Before touching the parser I want to re-read the settings file once more.",
       "Before touching the parser I want to re-read the settings file once more.",
       "Before touching the parser I want to re-read the settings file once more.",
@@ -307,7 +312,7 @@ if (process.argv.includes("--selftest")) {
     judgeThinking: () => ({ kind: "strip", rule: "dup" }), // 就是修之前那个「dup 先 return」
   };
   cases.push(["冲突样本时组合判据判给弱的那条 → 应红（这条正是本轮的真缺陷）",
-    ruleMatrix(fakeRules, twoJudges, [{ name: "both", text: "x", expect: "dup" }], ST).some((q) => q.includes("按强度胜者应是"))]);
+    ruleMatrix(fakeRules, twoJudges, [{ name: "both", text: "x", expectFiring: "dup" }], ST).some((q) => q.includes("按强度胜者应是"))]);
 
   const goodJudges = {
     dupJudge: () => ({ kind: "none", rule: "dup" }),
@@ -315,7 +320,7 @@ if (process.argv.includes("--selftest")) {
     judgeThinking: () => ({ kind: "retract", rule: "lang" }),
   };
   cases.push(["只有独有类样本（无冲突）→ 应红：顺序面没被覆盖",
-    ruleMatrix(fakeRules, goodJudges, [{ name: "only-lang", text: "x", expect: "lang" }], ST).some((q) => q.includes("顺序") && q.includes("没被覆盖"))]);
+    ruleMatrix(fakeRules, goodJudges, [{ name: "only-lang", text: "x", expectFiring: "lang" }], ST).some((q) => q.includes("顺序") && q.includes("没被覆盖"))]);
 
   let n = 0;
   for (const [name, ok] of cases) {
