@@ -31,13 +31,12 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // 于是 --strict 被当成文件路径（第一次跑就撞上这个）。
 const arg = process.argv.slice(2).find((a) => !a.startsWith("--"));
 
-// 2026-11-25 拆表：SIGN-OFF.md 只留当前有效的一版，历次签字搬到 SIGN-OFF-LOG.md。
-// 默认两份都读——「谁签过什么」是跨时间的，只读当前那份等于把历史扔掉，
-// 于是「你签过 X」这个问题就又变回靠记忆回答。
-const DEFAULT_FILES = ["SIGN-OFF.md", "SIGN-OFF-LOG.md"].map((n) => path.join(REPO, n));
+// 默认只读 SIGN-OFF.md：当前有效的那一版。历次签字在 git log 里（本文件的历史版本）。
+// 「谁签过什么」要跨时间就查 git，不在这里再存一份会分叉的副本。
+const DEFAULT_FILES = ["SIGN-OFF.md"].map((n) => path.join(REPO, n));
 const files = arg ? [arg] : DEFAULT_FILES.filter((f) => fs.existsSync(f));
 
-if (!files.length) { console.error("signoff-commits: 找不到 SIGN-OFF.md 或 SIGN-OFF-LOG.md（rc=2）"); process.exit(2); }
+if (!files.length) { console.error("signoff-commits: 找不到 SIGN-OFF.md（rc=2）"); process.exit(2); }
 for (const f of files) if (!fs.existsSync(f)) { console.error("signoff-commits: 找不到 " + f + "（rc=2）"); process.exit(2); }
 
 const rows = [];

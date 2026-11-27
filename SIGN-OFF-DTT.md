@@ -9,7 +9,7 @@
 | 判据 | `node verify-dtt.mjs` → 期望 rc=0 |
 | 坏样本 | `node verify-dtt.mjs --selftest` → 期望 5/5 全红 |
 | 指纹一致 | `node scripts/check-dtt-fingerprint.mjs` → 期望 rc=0；本表那行与现值不同就红 |
-| 指纹 | `3365adc48e41295f4e8ab5dfc480ccbf11af956d8b6412e16a97075a61e2f222` |
+| 指纹 | `0ad81b826dd15510a5fdf7c3c7901b0d5d51825fda8019e4a9a26e1c3bd85763` |
 | 既有测试 | `npm test` |
 | sorry | 无 |
 
@@ -20,6 +20,7 @@
 | 改了什么 | README 与 SETTINGS 按当前代码重写；新增 `scripts/check-dtt-fingerprint.mjs`，让本表指纹过期会红 |
 | 2026-11-26 重签 | 取条目从 `getEntries()`（文件全集）改成 `getBranch()`（当前分支）：tab 报 `Invalid boundary entries: Entry XXXXXXXX not found`，根因是清签名时指向了废弃分支的条目。新增 `src/algo/branch.ts` + `test/branch.test.ts`（坏样本已验会红）。指纹随之刷新。 |
 | 2026-11-26 重签（二） | README 的「配置生效机制」一句改成与代码一致：按文件 mtime 现读（`src/index.ts` 的 `refresh()`），不是靠 `session_start`。文档一改指纹就变，所以重签。 |
+| 2026-11-27 重签 | 这条判据在 main 上本来就是红的：签字行记的是 `3365adc4`，现值 `0ad81b82`（`README.md` 与 `verify-dtt.mjs` 两个文件的 sha256，两份都与 main 逐字节相同，所以过期的是签字行，不是文件）。按脚本给的指引改成本次现值。 |
 | 判据 | `npm run verify` → rc=0（签字行里记这一次的实跑结果） |
 | 指纹取法 | `node verify-dtt.mjs --fingerprint`：`README.md` 与 `verify-dtt.mjs` 两个文件的 sha256 |
 | 宣布不了收敛 | 下表空着等甲方 |
