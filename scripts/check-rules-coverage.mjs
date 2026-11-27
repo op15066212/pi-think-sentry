@@ -132,6 +132,42 @@ export function staleModuleState(files) {
   }
   return out;
 }
+
+/** 具名 import 的每个绑定，必须在文件其余部分至少出现一次。
+ *  没有 tsconfig 的 noUnusedLocals 时，「导入但不用」是死声明里最难自己发现的一类：
+ *  它不影响行为，tsc 不报，测试不红，编辑器的提示还常常标 [stale] 而被人忽略。
+ *
+ *  2026-11-27 实测：src/index.ts 的 import 里，planSignatureCleanup 全文只出现一次
+ *  （实际调用的是 planSignatureCleanupIncremental）。pi-lens 报的
+ *  「Remove unused declaration for: planSignatureCleanup」指的是这个绑定，
+ *  不是那个函数本身——那个函数有 12 处测试调用，是活的。
+ *  （这条是「诊断给的名字对、位置不对」的一个实例。）
+ */
+export function deadImports(files) {
+  const out = [];
+  const IMPORT_RE = /import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*["\'][^"\']+["\']/g;
+  for (const [rel, text] of Object.entries(files)) {
+    const imports = [];
+    for (const m of text.matchAll(IMPORT_RE)) imports.push({ full: m[0], names: m[1] });
+    let rest = text;
+    for (const imp of imports) rest = rest.split(imp.full).join("");
+    // 注释里的名字不算使用。只剥「整行 //」与块注释：行内 // 保留，
+    // 因为字符串里也可能有 //（剥它会少算一处使用 → 多报死导入 → 假红）。
+    // 保守方向选「宁可漏报，不要假红」——假红会让人开始忽略这条判据。
+    rest = rest.replace(/\/\*[\s\S]*?\*\//g, "").split(/\r?\n/).filter((l) => !/^\s*\/\//.test(l)).join("\n");
+    for (const imp of imports) {
+      for (const rawPiece of imp.names.split(",")) {
+        const piece = rawPiece.trim();
+        if (!piece) continue;
+        const id = piece.replace(/^type\s+/, "").split(/\s+as\s+/).pop().trim();
+        if (!/^[A-Za-z_$][\w$]*$/.test(id)) continue;
+        const re = new RegExp("(^|[^.\\w$])" + id + "\\b");
+        if (!re.test(rest)) out.push(rel + "：导入的 " + id + " 在文件其余部分一次都没出现");
+      }
+    }
+  }
+  return out;
+}
 export async function check(dir = here) {
   const src = path.join(dir, "src");
   if (!fs.existsSync(src)) { console.log("缺 " + src); process.exit(2); }
@@ -174,6 +210,18 @@ export async function check(dir = here) {
     srcFiles["src/" + f] = fs.readFileSync(path.join(src, f), "utf8");
   }
   for (const q of staleModuleState(srcFiles)) problems.push(q);
+
+  // 死导入（2026-11-27）：具名 import 的每个绑定必须在文件其余部分至少出现一次。
+  // tsconfig 没开 noUnusedLocals，所以 tsc 不报；pi-lens 的提示常被标 [stale] 而忽略。
+  const allSrc = {};
+  for (const d of ["src", "src/algo", "src/features"]) {
+    const full = path.join(here, d);
+    if (!fs.existsSync(full)) continue;
+    for (const f of fs.readdirSync(full).filter((n) => n.endsWith(".ts"))) {
+      allSrc[d + "/" + f] = fs.readFileSync(path.join(full, f), "utf8");
+    }
+  }
+  for (const q of deadImports(allSrc)) problems.push(q);
 
   // 死构造子：Kind / Rule 里每个字面量必须真的会被产生，或在 REMOVED_RULES 里有档案。
   // 读 verdict.ts + judges.ts 的源码文本：产生处就写在里面（rule:"x" / kind:"x"）。
@@ -258,6 +306,17 @@ if (process.argv.includes("--selftest")) {
     staleModuleState({ "x.ts": constState }).length === 0]);
   cases.push(["注释里提到名字不算赋值 → 仍应红",
     staleModuleState({ "x.ts": "let a = 1;" + NL2 + "// a = 2 是注释" + NL2 }).length === 1]);
+
+  // ⑮⑯⑰⑱ 死导入（2026-11-27）。喂自造 import 文本，不读真实 src。
+  const imp = (names, body) => "import { " + names + " } from " + q + "./m.ts" + q + ";" + NL2 + body + NL2;
+  cases.push(["导入但不用 → 应红",
+    deadImports({ "x.ts": imp("a, b", "b();") }).length === 1]);
+  cases.push(["导入且用 → 必须绿",
+    deadImports({ "x.ts": imp("a, b", "a(); b();") }).length === 0]);
+  cases.push(["type 前缀与 as 别名都要认 → 用别名时必绿",
+    deadImports({ "x.ts": imp("type T, b as c", "c();") }).length === 1]);
+  cases.push(["名字只出现在注释里 → 仍应红（注释不算使用）",
+    deadImports({ "x.ts": imp("a", "// a 是注释") }).length === 1]);
 
   let n = 0;
   for (const [name, ok] of cases) {

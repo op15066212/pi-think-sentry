@@ -1,4 +1,4 @@
-import { SENT_RE, MARK_RE, sentencesOf } from "./sentences.ts";
+import { MARK_RE, sentencesOf } from "./sentences.ts";
 // 对外仍从 judges 导出：调用方不必知道我把它挪去了哪个文件。
 export { MARK_RE, sentencesOf };
 const ratioOf = (v: any, dflt: number) => {
