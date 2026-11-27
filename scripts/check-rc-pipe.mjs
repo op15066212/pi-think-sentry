@@ -74,8 +74,7 @@ export function check(files) {
 // 原来会连带跑主流程并 exit。同一个修法我在 check-doc-accuracy 里做过，这里漏了。
 // 两边都归一成正斜杠再比：fileURLToPath 在 Windows 上返回反斜杠，
 // 只归一右边的话永远不等（我第一版就写错了，于是导入时主流程照跑）。
-const norm = (x) => String(x || "").replace(/\\/g, "/");
-const isMain = !!process.argv[1] && norm(fileURLToPath(import.meta.url)) === norm(process.argv[1]);
+const isMain = import.meta.main;
 if (isMain && process.argv.includes("--selftest")) {
   // 好样本：重定向后单独读 rc
   const good = ['node x.mjs > /tmp/o.txt 2>&1', 'echo "rc=$?"'];
