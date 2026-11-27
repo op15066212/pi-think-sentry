@@ -9,7 +9,7 @@
 | 判据 | `node verify-dtt.mjs` → 期望 rc=0 |
 | 坏样本 | `node verify-dtt.mjs --selftest` → 期望 5/5 全红 |
 | 指纹一致 | `node scripts/check-dtt-fingerprint.mjs` → 期望 rc=0；本表那行与现值不同就红 |
-| 指纹 | `0b0fbb31434c26884c48754f0a5453715fb6824caf98375f0f077c8293ac3068` |
+| 指纹 | `fd48bf534b8864aedd5f655111cc1d9c811f848a5a8ffc5e304b33667eaac2ad` |
 | 既有测试 | `npm test` |
 | sorry | 无 |
 
@@ -22,6 +22,7 @@
 | 2026-11-26 重签（二） | README 的「配置生效机制」一句改成与代码一致：按文件 mtime 现读（`src/index.ts` 的 `refresh()`），不是靠 `session_start`。文档一改指纹就变，所以重签。 |
 | 2026-11-27 重签 | 这条判据在 main 上本来就是红的：签字行记的是 `3365adc4`，现值 `0ad81b82`（`README.md` 与 `verify-dtt.mjs` 两个文件的 sha256，两份都与 main 逐字节相同，所以过期的是签字行，不是文件）。按脚本给的指引改成本次现值。 |
 | 2026-11-27 重签（三） | README 的「判据怎么验」加了第一步 `npm ci`：不装依赖直接跑 verify 会红在两条 tsc 用例上（Cannot find module .../typescript/bin/tsc），那是环境缺失不是代码坏，这个形状骗过两个人各两次。文档一改指纹就变，所以重签。 |
+| 2026-11-27 重签（四） | README 的规则条数从「七条（两+五）」改成「六条（两+四）」：RULES 实际是 6 条（2 verdict + 4 mechanism），文档多报一条。同时加了一条判据对拍这个数（check-doc-accuracy 的 rulesCountMismatch），所以以后它不会再漂。文档一改指纹就变，重签。 |
 | 判据 | `npm run verify` → rc=0（签字行里记这一次的实跑结果） |
 | 指纹取法 | `node verify-dtt.mjs --fingerprint`：`README.md` 与 `verify-dtt.mjs` 两个文件的 sha256 |
 | 宣布不了收敛 | 下表空着等甲方 |
