@@ -43,6 +43,30 @@ export function diffModulesAndFeatures(modNames, features) {
   for (const f of files) if (!names.has(f)) out.push("features/" + f + ".ts 存在，但 MODULES 里没有它");
   return out;
 }
+
+/** RULES 的「引入」里点名的 test 文件与期望条数，必须与盘面对得上。
+ *  2026-11-27 实测两条真空条目：
+ *    strip-empty 的引入指向 test/empty-frame.test.ts —— 那个文件不存在；
+ *    signature-clean 写「期望 11 条」，而 test/signature.test.ts 实际有 15 条。
+ *  check-rules-coverage 原本只查「id 在模块里出现」，所以两条都为绿。
+ *  这不是措辞问题：一条规则的四格之一（引入）指向空，那条规则等于没有判据。
+ *  返回问题列表；纯函数，便于坏样本直接喂。 */
+export function introProblems(rules, dir) {
+  const out = [];
+  for (const r of rules) {
+    const text = String(r.引入 || "");
+    const m = text.match(/test\/([A-Za-z0-9_.-]+\.test\.(?:ts|mjs))/);
+    const want = text.match(/期望\s*(\d+)\s*条/);
+    if (!m) { out.push(r.id + "：引入里没有点名任何 test 文件"); continue; }
+    const file = path.join(dir, "test", m[1]);
+    if (!fs.existsSync(file)) { out.push(r.id + "：引入指向 test/" + m[1] + "，盘上没有这个文件"); continue; }
+    if (!want) { out.push(r.id + "：引入里没写期望条数"); continue; }
+    const body = fs.readFileSync(file, "utf8");
+    const actual = (body.match(/^\s*(?:test|it)\(/gm) || []).length;
+    if (actual !== Number(want[1])) out.push(r.id + "：引入写期望 " + want[1] + " 条，test/" + m[1] + " 实际 " + actual + " 条");
+  }
+  return out;
+}
 export async function check(dir = here) {
   const src = path.join(dir, "src");
   if (!fs.existsSync(src)) { console.log("缺 " + src); process.exit(2); }
@@ -76,6 +100,7 @@ export async function check(dir = here) {
   const named = new Set(mods({ module: RULES.flatMap(mods) }).map((m) => m.replace(/^features\//, "")));
   for (const f of features) if (!named.has(f)) problems.push("features/" + f + " 没有任何 RULES 条目点名");
 
+  for (const p of introProblems(RULES, dir)) problems.push(p);
   for (const p of missingModules(RULES, src)) problems.push(p);
   return problems;
 }
@@ -115,6 +140,16 @@ if (process.argv.includes("--selftest")) {
   // ④ 挡「恒非空」：一个永远报错的实现会让 ②③ 都 PASS。
   //    用一个两边都齐的样本对，结果必须是空。
   cases.push(["两边都齐 → 必须返回空（挡恒非空）", diffModulesAndFeatures(names, files).length === 0]);
+
+  // ⑤⑥⑦ 引入这一格的样本（2026-11-27）。三条都喂自造规则，不读真实 RULES：
+  //     读真实的话，有人把 meta.ts 改对了这条样本就失去意义。
+  const introOf = (id, text) => [{ id, 引入: text }];
+  cases.push(["引入指向不存在的 test 文件 → 应红",
+    introProblems(introOf("x", "node --test test/不存在.test.ts；期望 1 条全过、rc=0"), here).length > 0]);
+  cases.push(["引入的期望条数与实际不符 → 应红",
+    introProblems(introOf("x", "node --test test/strip.test.ts；期望 999 条全过、rc=0"), here).length > 0]);
+  cases.push(["引入指的文件存在且条数对 → 必须绿",
+    introProblems(introOf("x", "node --test test/strip.test.ts；期望 10 条全过、rc=0"), here).length === 0]);
 
   let n = 0;
   for (const [name, ok] of cases) {

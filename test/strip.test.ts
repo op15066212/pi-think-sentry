@@ -35,8 +35,12 @@ test("判据说干净：门槛设到 2 也一格都不许动", () => {
   const think = "甲\n甲\n乙";          // 甲 出现 2 次，判据认为干净
   const v = gate(think);
   assert.equal(v.kind, "none", "前提：判据认为干净");
-  const r = strip.clean(one(think), v, 2); // 门槛故意低于判据
+  const blocks = one(think);
+  const r = strip.clean(blocks, v, 2); // 门槛故意低于判据
   assert.equal(r.cleaned, false, "没有判据的许可，删行不许动手");
+  // strip-empty 的反例：无判定时若返回一个**新**数组，下游会以为「改过了」，
+  // 日志里多一条空补丁。cleaned:false 不足以区分这两者，所以要断言同一引用。
+  assert.equal(r.content, blocks, "无判定时必须返回同一个数组对象，不是复制品");
   assert.equal(textOf(r), think);
 });
 
