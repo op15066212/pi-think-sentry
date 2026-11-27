@@ -101,8 +101,6 @@ const EXCLUDE = new Map([
   // 两边都写是矛盾：EXCLUDE 让它永不进 filesOf，VOLATILE 那一半就成了死条目。
   // 目录以斜杠结尾。下面两个不进被签面，理由写在这里。
   ["state.json", "运行时状态（计数与水位）。插件跑一轮写一次，不是人写的，不该进被签面。"],
-  [".doc-bridge/", "doc-bridge 工具自动生成的知识索引。它随工具重扫而变，不是人写的。"],
-  ["reviews/", "只追加的审查记录。验它该读 git log 的历史，不是读一个应当稳定的数；改了旧记录，git 也会显示。"],
 ]);
 
 /** 一个相对路径是否被 EXCLUDE 点名。目录以斜杠结尾按前缀匹配，其余按文件名匹配。 */
@@ -145,7 +143,9 @@ function filesOf(root) {
   // 顶层：除 node_modules / 点开头的目录之外，全部收。
   // 也包括 .gitignore 这类点开头的文件（它决定哪些东西进 git，是有语义的）。
   for (const e of fs.readdirSync(root, { withFileTypes: true })) {
-    if (e.isDirectory()) continue;
+    // .git 在普通克隆里是目录，在 worktree 里是一个文件；两种都要跳过。
+    // 否则 worktree 里跑自检会红在「工作区有 HEAD 无的文件」上，且与改动无关。
+    if (e.isDirectory() || e.name === ".git") continue;
     if (isExcluded(e.name)) continue;
     out.push(path.join(root, e.name));
   }

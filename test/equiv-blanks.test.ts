@@ -1,4 +1,4 @@
-// 变异巡检第一轮（reviews/proposals-r1.md §3.2）判错的四条 + verdict.ts:19 的真空白。
+// 变异巡检第一轮判错的四条 + verdict.ts:19 的真空白。
 // 每条测试对应一个「翻掉运算符测试仍全绿」的坐标；这些测试在位，下一轮 mutate
 // 不再把它们当成已清账的等价变异。等价的那一条（cut.ts:11 i<lines.length）
 // 没有测试：splice(len,1) 对越界下标不动数组，split/join 恒等，152 组输入零差异。

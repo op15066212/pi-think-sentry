@@ -108,7 +108,7 @@ if (isMain && process.argv.includes("--selftest")) {
 
 const files = [];
 for (const d of ["src", "bin", "scripts", "test"]) files.push(...walk(path.join(here, d)));
-for (const f of ["README.md", "HISTORY.md", "SETTINGS.md", "DESIGN.md"]) {
+for (const f of ["README.md", "SETTINGS.md"]) {
   const p = path.join(here, f);
   if (fs.existsSync(p)) files.push(p);
 }
