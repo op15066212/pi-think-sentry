@@ -94,6 +94,44 @@ export function deadConstructors(srcText, archivedIds) {
   }
   return out;
 }
+
+/** 模块级 `let` 若没有任何「非声明处的赋值」，它就恒等于初始值。
+ *  这种变量只有两种可能：死状态（本意是状态，但从没被更新过），或该写成 `const`。
+ *  精确到行：只认以 let 开头、且名字后面跟 = 或 : 的模块级声明。
+ *
+ *  2026-11-27 我仓实测到三个（src/index.ts）：
+ *    lastThink      只在声明处 = ""，从不写非空
+ *    lastV          只在 `if (lastThink) lastV = ...` 里写，而 lastThink 恒空 → 永不执行
+ *    lastRedThink   只在声明处 = ""
+ *  它们是「判据改成 tool_call 现场判」之后留下的壳，而同文件第 318 行的注释已经写着
+ *  「原来那一堆 lastThink / lastV ... 都没了」——注释说删了，变量还在。
+ *
+ *  这条判据是 deadConstructors 的同族第二类：那一类抓枚举值，这一类抓状态变量。
+ *  两级递进：先删掉 ① 里恒空的，② 的写入点会随之变成「无写入点」，被同一条判据抓住。 */
+export function staleModuleState(files) {
+  const out = [];
+  for (const [rel, text] of Object.entries(files)) {
+    const lines = text.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      const m = lines[i].match(/^let\s+([A-Za-z_$][\w$]*)\s*[=:]/);
+      if (!m) continue;
+      const name = m[1];
+      const re = new RegExp("\\b" + name + "\\b", "g");
+      let writes = 0;
+      for (let j = 0; j < lines.length; j++) {
+        if (j === i) continue;
+        const line = lines[j];
+        if (/^\s*\/\//.test(line)) continue; // 注释里的名字不算
+        // 赋值形态：name = / name += / ++name / name++ / name.push( 等就地修改
+        const assign = new RegExp("(^|[^.\\w$])" + name + "\\s*(=|\\+=|-=|\\+\\+|\\-\\-)");
+        const mutate = new RegExp("(^|[^.\\w$])" + name + "\\.(push|set|add|delete|clear)\\(");
+        if (assign.test(line) || mutate.test(line)) writes++;
+      }
+      if (writes === 0) out.push(rel + ":" + (i + 1) + " 模块级 let " + name + "：除声明处没有任何赋值，恒等于初值");
+    }
+  }
+  return out;
+}
 export async function check(dir = here) {
   const src = path.join(dir, "src");
   if (!fs.existsSync(src)) { console.log("缺 " + src); process.exit(2); }
@@ -129,6 +167,13 @@ export async function check(dir = here) {
 
   for (const p of introProblems(RULES, dir)) problems.push(p);
   for (const p of missingModules(RULES, src)) problems.push(p);
+
+  // 恒不变的模块级 let（deadConstructors 的同族第二类：那一类抓枚举值，这一类抓状态）。
+  const srcFiles = {};
+  for (const f of fs.readdirSync(src).filter((n) => n.endsWith(".ts"))) {
+    srcFiles["src/" + f] = fs.readFileSync(path.join(src, f), "utf8");
+  }
+  for (const q of staleModuleState(srcFiles)) problems.push(q);
 
   // 死构造子：Kind / Rule 里每个字面量必须真的会被产生，或在 REMOVED_RULES 里有档案。
   // 读 verdict.ts + judges.ts 的源码文本：产生处就写在里面（rule:"x" / kind:"x"）。
@@ -200,12 +245,27 @@ if (process.argv.includes("--selftest")) {
   cases.push(["全部有产生处 → 必须绿（挡「一律报红」）",
     deadConstructors(fakeSrc(q + "none" + q, "never") + prod, new Set()).length === 0]);
 
+  // ⑪⑫⑬⑭ 恒不变的模块级 let（2026-11-27）。喂自造文件文本，不读真实 src。
+  const NL2 = String.fromCharCode(10);
+  const deadState = "let a = 1;" + NL2 + "export function f() { return a; }" + NL2;
+  const liveState = "let a = 1;" + NL2 + "export function f() { a = 2; return a; }" + NL2;
+  const constState = "const a = 1;" + NL2 + "export function f() { return a; }" + NL2;
+  cases.push(["模块级 let 从不赋值 → 应红",
+    staleModuleState({ "x.ts": deadState }).length === 1]);
+  cases.push(["有赋值 → 必须绿",
+    staleModuleState({ "x.ts": liveState }).length === 0]);
+  cases.push(["const（本意就是常量）→ 必须绿",
+    staleModuleState({ "x.ts": constState }).length === 0]);
+  cases.push(["注释里提到名字不算赋值 → 仍应红",
+    staleModuleState({ "x.ts": "let a = 1;" + NL2 + "// a = 2 是注释" + NL2 }).length === 1]);
+
   let n = 0;
   for (const [name, ok] of cases) {
     if (!ok) n++;
     console.log((ok ? "PASS  " : "FAIL  ") + name);
   }
-  console.log(n === 0 ? "selftest: 四个方向全对" : "selftest: " + n + " 条不符");
+  // 数字不写死：条数会变，写死就变成注释（这条本身就是「N 条全过」那条判据的应用）。
+  console.log(n === 0 ? "selftest: " + cases.length + " 条全对" : "selftest: " + n + " 条不符");
   process.exit(n === 0 ? 0 : 1);
 }
 
