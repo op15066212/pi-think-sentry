@@ -167,16 +167,50 @@ if (import.meta.main && process.argv.includes("--selftest")) {
   const prod = "x({ kind: " + q + "none" + q + " })";
   const ghost = fakeKind(q + "none" + q + " | " + q + "ghost" + q, "never");
 
+  const deadState = "let a = 1;" + NL + "export function f() { return a; }" + NL;
+  const liveState = "let a = 1;" + NL + "export function f() { a = 2; return a; }" + NL;
+  const constState = "const a = 1;" + NL + "export function f() { return a; }" + NL;
+  const impOf = (names, body) => "import { " + names + " } from " + q + "./m.ts" + q + ";" + NL + body + NL;
   const cases = [
+
+  // 每条样本对应一处「会被改坏就红」的判据分支。拆分时我曾把 11 条精简成 6 条，
+  // 两个文件的 PASS 数（6 与 10）都对，加起来却比拆分前少 5 条——覆盖降级没人报。
+  // 数字自己是对的，数错了对象。所以这里按类补齐，且下面有一条「条数不少于 11」的断言。
     ["死构造子：有定义无产生 -> 应红", deadConstructors(ghost + prod, new Set()).length === 1],
     ["死构造子：有档案 -> 必须绿", deadConstructors(ghost + prod, new Set(["ghost"])).length === 0],
-    ["死状态：模块级 let 从不赋值 -> 应红", staleModuleState({ "x.ts": "let a = 1;" + NL }).length === 1],
-    ["死状态：有赋值 -> 必须绿", staleModuleState({ "x.ts": "let a = 1;" + NL + "a = 2;" + NL }).length === 0],
-    ["死导入：导入但不用 -> 应红",
-      deadImports({ "x.ts": "import { a, b } from " + q + "./m.ts" + q + ";" + NL + "b();" + NL }).length === 1],
-    ["死导入：导入且用 -> 必须绿",
-      deadImports({ "x.ts": "import { a, b } from " + q + "./m.ts" + q + ";" + NL + "a(); b();" + NL }).length === 0],
+    ["死构造子：全部有产生处 -> 必须绿（挡「一律报红」）",
+      deadConstructors(fakeKind(q + "none" + q, "never") + prod, new Set()).length === 0],
+    // 死状态
+    ["死状态：模块级 let 从不赋值 -> 应红", staleModuleState({ "x.ts": deadState }).length === 1],
+    ["死状态：有赋值 -> 必须绿", staleModuleState({ "x.ts": liveState }).length === 0],
+    ["死状态：const（本意就是常量）-> 必须绿", staleModuleState({ "x.ts": constState }).length === 0],
+    ["死状态：注释里提到名字不算赋值 -> 仍应红",
+      staleModuleState({ "x.ts": "let a = 1;" + NL + "// a = 2 是注释" + NL }).length === 1],
+    // 死导入
+    ["死导入：导入但不用 -> 应红", deadImports({ "x.ts": impOf("a, b", "b();") }).length === 1],
+    ["死导入：导入且用 -> 必须绿", deadImports({ "x.ts": impOf("a, b", "a(); b();") }).length === 0],
+    // 这一条原来写成一个断言、名字却是「用别名时必绿」，而断言值是 1 —— 名字与断言说的不是一件事。
+    // 它同时验两样东西，所以拆成两条：
+    //   `type T` 未被使用        -> 报 1 处（type 前缀要能认出来）
+    //   `b as c` 通过别名 c 使用 -> 不报（as 别名要算使用）
+    ["死导入：type 前缀要能认出来（type T 未使用 -> 报 1 处）",
+      deadImports({ "x.ts": impOf("type T, b as c", "c();") }).length === 1],
+    ["死导入：as 别名算使用（只留 b as c 并用 c -> 必须绿）",
+      deadImports({ "x.ts": impOf("b as c", "c();") }).length === 0],
+    ["死导入：名字只出现在注释里 -> 仍应红（注释不算使用）",
+      deadImports({ "x.ts": impOf("a", "// a 是注释") }).length === 1],
   ];
+
+  // 条数断言：挡「重构时顺手合并两条而没人注意」。
+  // 它不是恒真断言——把两条合并成一条，这个数就掉下去。
+  // 组 1 这条建议（「样本总数 >= N」）我采纳，并且写成「与下面的期望值相等」而不是「>=」，
+  // 因为「>=」挡不住「删一条补一条」，而「等于」会逼人同时改两个地方——那正是要被看见的。
+  const EXPECTED = 12;
+  // 条数断言先跑：条数不对下面那些 PASS 就没有意义（它们可能把两条合并成一条而都过）。
+  if (cases.length !== EXPECTED) {
+    console.log("FAIL 样本条数 " + cases.length + "，期望 " + EXPECTED + "（有人删或合并了样本）");
+    process.exit(1);
+  }
   let bad = 0;
   for (const [name, ok] of cases) { if (!ok) bad++; console.log((ok ? "PASS " : "FAIL ") + name); }
   console.log(bad === 0 ? "selftest: " + cases.length + " 条全对" : "selftest: " + bad + " 条不符");
