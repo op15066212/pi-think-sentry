@@ -35,7 +35,18 @@ const run = (full, args, ms = 300000) => {
   return { rc: r.status ?? 1, ms: Date.now() - t0 };
 };
 
-let bad = 0, steps = 0, selfs = 0;
+/** 三态：0 绿 / 1 红 / 2 与环境相关（缺外部程序、缺兄弟仓）。
+ *  分开的理由：把 2 算成红，一台没装 Electron 的机器上永远是红的，而「永远红」和
+ *  「永远绿」是同一种病——人学会忽略它。把 2 算成绿更坏：判据根本没跑。
+ *  所以 2 单独一栏，且全部条数都是 2 时整体 rc=2，不许报「通过」。 */
+function classify(rc) {
+  if (rc === 0) return "green";
+  if (rc === 2) return "skip";
+  return "red"; // 1 与崩溃（null→1）都算红：崩溃是判据本身坏了
+}
+
+let green = 0, red = 0, skipped = 0, steps = 0, selfs = 0;
+const reds = [];
 for (const full of files) {
   const name = path.relative(ROOT, full).split(path.sep).join("/");
   const hasSelf = fs.readFileSync(full, "utf8").includes("--selftest");
@@ -43,16 +54,26 @@ for (const full of files) {
   if (hasSelf) {
     const s = run(full, ["--selftest"]);
     steps++; selfs++;
-    console.log((s.rc === 0 ? "OK   " : "FAIL ") + name + " --selftest rc=" + s.rc + " " + s.ms + "ms");
-    if (s.rc !== 0) { bad++; continue; }
+    const k = classify(s.rc);
+    if (k === "red") { red++; reds.push(name + " --selftest"); }
+    else if (k === "skip") skipped++;
+    else green++;
+    console.log((k === "green" ? "OK   " : k === "skip" ? "SKIP " : "FAIL ") + name + " --selftest rc=" + s.rc + " " + s.ms + "ms");
+    if (k !== "green") continue;
   }
 
   const r = run(full, []);
   steps++;
-  console.log((r.rc === 0 ? "OK   " : "FAIL ") + name + (hasSelf ? "" : "（无 --selftest）") + " rc=" + r.rc + " " + r.ms + "ms");
-  if (r.rc !== 0) bad++;
+  const k = classify(r.rc);
+  if (k === "red") { red++; reds.push(name); }
+  else if (k === "skip") skipped++;
+  else green++;
+  console.log((k === "green" ? "OK   " : k === "skip" ? "SKIP " : "FAIL ") + name + (hasSelf ? "" : "（无 --selftest）") + " rc=" + r.rc + " " + r.ms + "ms");
 }
 
 if (selfs === 0) console.log("gate: 警告 —— " + files.length + " 条判据里没有一条带 --selftest，判据自身退化无人看守");
-console.log("gate: " + files.length + " 条判据（scripts " + inScripts.length + " + 根 " + atRoot.length + "），" + steps + " 步（其中 " + selfs + " 步是 selftest），失败 " + bad);
-process.exit(bad ? 1 : 0);
+console.log("gate: " + files.length + " 条判据（scripts " + inScripts.length + " + 根 " + atRoot.length + "）");
+console.log("      步骤 " + steps + "（selftest " + selfs + "）｜ 绿 " + green + " / 红 " + red + " / 跳过 " + skipped);
+if (red) { console.log("      红：" + reds.join(", ")); process.exit(1); }
+if (skipped && !green) { console.log("      全部与环境有关，没有任何一条真正跑过：rc=2"); process.exit(2); }
+process.exit(0);

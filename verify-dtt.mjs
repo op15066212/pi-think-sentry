@@ -62,7 +62,11 @@ export function check(text) {
 
 export function fingerprint() {
   const h = crypto.createHash("sha256");
-  for (const f of [DOC, fileURLToPath(import.meta.url)]) h.update(fs.readFileSync(f));
+  // 只认内容不认行尾：Windows 上 core.autocrlf 会把检出变成 CRLF，
+  // 直接 hash 原始字节会得到「同一个 commit 两个指纹」，而那不是回归，是换台机器。
+  // 恒红的判据和恒绿一样坏：人学会忽略它。
+  const norm = (f) => Buffer.from(fs.readFileSync(f, "utf8").replace(/\r\n/g, "\n"), "utf8");
+  for (const f of [DOC, fileURLToPath(import.meta.url)]) h.update(norm(f));
   return h.digest("hex");
 }
 

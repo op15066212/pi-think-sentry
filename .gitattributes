@@ -1,0 +1,4 @@
+
+# 被签的两个文件钉成 LF：指纹只认内容不认行尾，但钉住能让别的机器检出后也是 LF。
+README.md     text eol=lf
+verify-dtt.mjs text eol=lf
