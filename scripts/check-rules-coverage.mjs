@@ -168,6 +168,83 @@ export function deadImports(files) {
   }
   return out;
 }
+
+/** 判据覆盖矩阵：每条 kind=verdict 的规则，必须有一个「只该它成立」的输入。
+ *
+ *  为什么要有（2026-11-27）：check-judge-order 只验三种组合，而规则数是会增长的。
+ *  抓的那个真缺陷正是「dup 先 return 把 lang 整条吞了」——它靠人想到"同时命中"才现形。
+ *  这条矩阵把「想到」变成「跑一遍」：组合判据的胜者必须等于单判时唯一成立的那条。
+ *
+ *  真值从哪来（这是它不恒绿的关键）：
+ *    每格的真值 = 该规则**独立的判定函数**（dup → dupJudge，lang → langJudge）现算，
+ *    不是手写的期望。手写的只有「输入」和「意图让谁成立」，两者都会被现算核对。
+ *    所以新增一条规则时：RULES 自动多一列 → 若取不到它的独立入口，报红（"没有可单独测的入口"）；
+ *    若取得到但没有任何样本让它单独成立，也报红。
+ *
+ *  返回问题列表；纯函数，selftest 直接喂假 judges。 */
+export function ruleMatrix(rules, judgesMod, samples, strength) {
+  const out = [];
+  const verdictRules = rules.filter((r) => r.kind === "verdict").map((r) => r.id);
+  const judgeOf = (id) => {
+    // 两种命名都试：dup -> dupJudge（本仓现状），signature-clean -> signatureCleanJudge。
+    const camel = id.replace(/(^|-)([a-z])/g, (_m, _d, c) => c.toUpperCase());
+    for (const name of [id + "Judge", camel + "Judge"]) {
+      if (typeof judgesMod[name] === "function") return judgesMod[name];
+    }
+    return null;
+  };
+  // ① 每条规则都要有独立入口。没有入口就无从「让它单独成立」，这条判据也就管不到它。
+  for (const id of verdictRules) {
+    if (!judgeOf(id)) out.push("规则 " + id + "：judges.ts 里没有它的独立判定函数，无法单独验它成立");
+  }
+  const wins = new Map(verdictRules.map((id) => [id, 0]));
+  const conflicts = [];
+  for (const s of samples) {
+    const firing = [];
+    for (const id of verdictRules) {
+      const f = judgeOf(id);
+      if (!f) continue;
+      const v = f(s.text);
+      if (v && v.kind !== "none") firing.push({ rule: id, kind: v.kind });
+    }
+    for (const f of firing) wins.set(f.rule, wins.get(f.rule) + 1);
+    if (firing.length > 1) conflicts.push(s.name);
+
+    // 胜者不手写：由「处置强度」表在单判成立的规则里挑最高的一条。
+    // 这条表是设计声明，不靠代码反推——retract 是「这一轮不采用」，比 strip「删几行」强。
+    let want = { kind: "none", rule: null };
+    if (firing.length) {
+      const top = firing.reduce((a, b) => ((strength[b.kind] || 0) > (strength[a.kind] || 0) ? b : a));
+      const ties = firing.filter((f) => (strength[f.kind] || 0) === (strength[top.kind] || 0));
+      if (ties.length > 1) out.push("样本 " + s.name + "：成立的规则处置强度并列（" + ties.map((t) => t.rule).join("/") + "），强度表需要补一条序");
+      want = top;
+    }
+
+    // 意图核对：写了的 expect 必须真的单独成立；expect 为 null 时不该有任何规则成立。
+    if (s.expect === null) {
+      if (firing.length) out.push("样本 " + s.name + "：意图「不该有任何规则成立」，但 " + firing.map((f) => f.rule).join("/") + " 单独成立了");
+      continue;
+    }
+    if (s.expect !== undefined && !firing.some((f) => f.rule === s.expect)) {
+      out.push("样本 " + s.name + "：意图让 " + s.expect + " 成立，实际单独成立的有 " + (firing.map((f) => f.rule).join("/") || "无"));
+      continue;
+    }
+
+    // 组合判据的胜者必须等于按强度算出来的那条——不是"第一个 return 的那条"。
+    const combined = judgesMod.judgeThinking(s.text);
+    if (combined.kind !== want.kind || combined.rule !== want.rule) {
+      out.push("样本 " + s.name + "：按强度胜者应是 " + want.kind + "/" + (want.rule || "-") + "，组合判据判给 " + combined.kind + "/" + combined.rule);
+    }
+  }
+  // ④ 每条规则都要在矩阵里赢过至少一格。
+  for (const [id, n] of wins) {
+    if (n === 0) out.push("规则 " + id + "：" + samples.length + " 个样本里一次都没单独成立过（覆盖缺口）");
+  }
+  // ⑤ 至少要有一个「多条同时成立」的样本，否则「谁先判」这个面一格都没覆盖。
+  //    2026-11-27 实测：少了这一类时，把顺序改回 dup 先判，矩阵仍 rc=0 —— 它管不住顺序。
+  if (!conflicts.length) out.push("没有任何样本同时成立两条规则：判据顺序（谁先 return）这个面没被覆盖");
+  return out;
+}
 export async function check(dir = here) {
   const src = path.join(dir, "src");
   if (!fs.existsSync(src)) { console.log("缺 " + src); process.exit(2); }
@@ -222,6 +299,42 @@ export async function check(dir = here) {
     }
   }
   for (const q of deadImports(allSrc)) problems.push(q);
+
+  // 判据覆盖矩阵（2026-11-27）。
+  // 样本表只是输入；每格的真值由各自的独立判定函数现算，胜者由下面的强度表算出。
+  // 两类样本各管一个面：
+  //   独有类——只该一条规则成立，验「这条规则真能单独赢」；
+  //   冲突类——多条同时成立，验「谁先 return」。
+  // 2026-11-27 实测：只有独有类时，把顺序改回 dup 先判，矩阵仍 rc=0 —— 它管不住顺序。
+  const judgesMod = await import(pathToFileURL(path.join(src, "judges.ts")).href);
+  const NL3 = String.fromCharCode(10);
+  // 处置强度：设计声明，不靠代码反推。retract 是「这一轮不采用」，比 strip「删几行」强。
+  const STRENGTH = { retract: 3, strip: 2, fold: 2, none: 0 };
+  const SAMPLES = [
+    { name: "中文复诵 4 行（只该 dup）", expect: "dup", text: ["做。", "做。", "做。", "做。"].join(NL3) },
+    { name: "整块英文不重复（只该 lang）", expect: "lang", text: [
+      "I should read the config file first.",
+      "Then check the parsed values.",
+      "After that I will write the summary.",
+      "Finally I will run the tests.",
+    ].join(NL3) },
+    { name: "中文正常写作（都不该成立）", expect: null, text: [
+      "先读配置文件。",
+      "再看解析出来的值。",
+      "然后写总结。",
+      "最后跑测试。",
+    ].join(NL3) },
+    // 冲突类：不复用 check-judge-order 的输入（那三条是同一批形状），这里换长度与语序，
+    // 让两处样本表不同源——否则改一张表两条判据一起变，那是一条判据不是两条。
+    { name: "英文长句复诵 5 行（dup 与 lang 都成立）", expect: "dup", text: [
+      "Before touching the parser I want to re-read the settings file once more.",
+      "Before touching the parser I want to re-read the settings file once more.",
+      "Before touching the parser I want to re-read the settings file once more.",
+      "Before touching the parser I want to re-read the settings file once more.",
+      "Before touching the parser I want to re-read the settings file once more.",
+    ].join(NL3) },
+  ];
+  for (const q of ruleMatrix(RULES, judgesMod, SAMPLES, STRENGTH)) problems.push(q);
 
   // 死构造子：Kind / Rule 里每个字面量必须真的会被产生，或在 REMOVED_RULES 里有档案。
   // 读 verdict.ts + judges.ts 的源码文本：产生处就写在里面（rule:"x" / kind:"x"）。
@@ -317,6 +430,30 @@ if (process.argv.includes("--selftest")) {
     deadImports({ "x.ts": imp("type T, b as c", "c();") }).length === 1]);
   cases.push(["名字只出现在注释里 → 仍应红（注释不算使用）",
     deadImports({ "x.ts": imp("a", "// a 是注释") }).length === 1]);
+
+  // ⑲⑳㉑ 覆盖矩阵（2026-11-27）。喂假 judges，不读真实 src/judges.ts——
+  // 读真实的话，判据坏了也会因为「真实实现恰好对」而绿。
+  const fakeRules = [{ id: "dup", kind: "verdict" }, { id: "lang", kind: "verdict" }];
+  const ST = { retract: 3, strip: 2, fold: 2, none: 0 };
+  const alwaysNone = { judgeThinking: () => ({ kind: "none", rule: "dup" }) };
+  cases.push(["没有任何独立判定函数 → 应红（无从单独验规则成立）",
+    ruleMatrix(fakeRules, alwaysNone, [{ name: "s", text: "x" }], ST).some((q) => q.includes("独立判定函数"))]);
+
+  const twoJudges = {
+    dupJudge: () => ({ kind: "strip", rule: "dup" }),
+    langJudge: () => ({ kind: "retract", rule: "lang" }),
+    judgeThinking: () => ({ kind: "strip", rule: "dup" }), // 就是修之前那个「dup 先 return」
+  };
+  cases.push(["冲突样本时组合判据判给弱的那条 → 应红（这条正是本轮的真缺陷）",
+    ruleMatrix(fakeRules, twoJudges, [{ name: "both", text: "x", expect: "dup" }], ST).some((q) => q.includes("按强度胜者应是"))]);
+
+  const goodJudges = {
+    dupJudge: () => ({ kind: "none", rule: "dup" }),
+    langJudge: () => ({ kind: "retract", rule: "lang" }),
+    judgeThinking: () => ({ kind: "retract", rule: "lang" }),
+  };
+  cases.push(["只有独有类样本（无冲突）→ 应红：顺序面没被覆盖",
+    ruleMatrix(fakeRules, goodJudges, [{ name: "only-lang", text: "x", expect: "lang" }], ST).some((q) => q.includes("顺序") && q.includes("没被覆盖"))]);
 
   let n = 0;
   for (const [name, ok] of cases) {
