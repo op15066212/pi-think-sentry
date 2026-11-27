@@ -68,106 +68,6 @@ export function introProblems(rules, dir) {
   return out;
 }
 
-/** Kind / Rule 里每个字面量，要么真的会被产生，要么有档案（REMOVED_RULES 点名）。
- *
- *  2026-11-27（组 1 在 session-doctor 抓到同族缺陷：KIND.UNREACHABLE 只有定义，
- *  grep "KIND.UNREACHABLE" 命中 0——那个异常类永远不会产生）。我仓同族更隐蔽：
- *  Kind 里的 fold 有消费分支（features/strip.ts 的 case "fold"）、能被 Verdict.parse 接受，
- *  但全仓没有任何一处产生 kind: "fold"。于是那条分支永不执行，而它看起来是活的。
- *
- *  为什么这比缺样本更坏：覆盖率/待办表里它永远占一格，人读到的是「还没写」而不是「不存在」。
- *
- *  返回问题列表；纯函数，坏样本直接喂。 */
-export function deadConstructors(srcText, archivedIds) {
-  const out = [];
-  const kindBlk = srcText.match(/export type Kind\s*=([^;]+);/);
-  const ruleBlk = srcText.match(/export type Rule\s*=([^;]+);/);
-  const pick = (blk) => (blk ? [...blk[1].matchAll(/"([a-z][a-z0-9-]*)"/g)].map((m) => m[1]) : []);
-  const pairs = [["kind", pick(kindBlk)], ["rule", pick(ruleBlk)]];
-  for (const [field, names] of pairs) {
-    for (const n of names) {
-      const produced = (srcText.split(field + ": \"" + n + "\"").length - 1) > 0;
-      if (produced) continue;
-      if (archivedIds.has(n)) continue; // 有档案：REMOVED_RULES 里点名并写了 why
-      out.push(field + " \"" + n + "\"：永不产生，也没有档案（REMOVED_RULES 里没有它）");
-    }
-  }
-  return out;
-}
-
-/** 模块级 `let` 若没有任何「非声明处的赋值」，它就恒等于初始值。
- *  这种变量只有两种可能：死状态（本意是状态，但从没被更新过），或该写成 `const`。
- *  精确到行：只认以 let 开头、且名字后面跟 = 或 : 的模块级声明。
- *
- *  2026-11-27 我仓实测到三个（src/index.ts）：
- *    lastThink      只在声明处 = ""，从不写非空
- *    lastV          只在 `if (lastThink) lastV = ...` 里写，而 lastThink 恒空 → 永不执行
- *    lastRedThink   只在声明处 = ""
- *  它们是「判据改成 tool_call 现场判」之后留下的壳，而同文件第 318 行的注释已经写着
- *  「原来那一堆 lastThink / lastV ... 都没了」——注释说删了，变量还在。
- *
- *  这条判据是 deadConstructors 的同族第二类：那一类抓枚举值，这一类抓状态变量。
- *  两级递进：先删掉 ① 里恒空的，② 的写入点会随之变成「无写入点」，被同一条判据抓住。 */
-export function staleModuleState(files) {
-  const out = [];
-  for (const [rel, text] of Object.entries(files)) {
-    const lines = text.split(/\r?\n/);
-    for (let i = 0; i < lines.length; i++) {
-      const m = lines[i].match(/^let\s+([A-Za-z_$][\w$]*)\s*[=:]/);
-      if (!m) continue;
-      const name = m[1];
-      const re = new RegExp("\\b" + name + "\\b", "g");
-      let writes = 0;
-      for (let j = 0; j < lines.length; j++) {
-        if (j === i) continue;
-        const line = lines[j];
-        if (/^\s*\/\//.test(line)) continue; // 注释里的名字不算
-        // 赋值形态：name = / name += / ++name / name++ / name.push( 等就地修改
-        const assign = new RegExp("(^|[^.\\w$])" + name + "\\s*(=|\\+=|-=|\\+\\+|\\-\\-)");
-        const mutate = new RegExp("(^|[^.\\w$])" + name + "\\.(push|set|add|delete|clear)\\(");
-        if (assign.test(line) || mutate.test(line)) writes++;
-      }
-      if (writes === 0) out.push(rel + ":" + (i + 1) + " 模块级 let " + name + "：除声明处没有任何赋值，恒等于初值");
-    }
-  }
-  return out;
-}
-
-/** 具名 import 的每个绑定，必须在文件其余部分至少出现一次。
- *  没有 tsconfig 的 noUnusedLocals 时，「导入但不用」是死声明里最难自己发现的一类：
- *  它不影响行为，tsc 不报，测试不红，编辑器的提示还常常标 [stale] 而被人忽略。
- *
- *  2026-11-27 实测：src/index.ts 的 import 里，planSignatureCleanup 全文只出现一次
- *  （实际调用的是 planSignatureCleanupIncremental）。pi-lens 报的
- *  「Remove unused declaration for: planSignatureCleanup」指的是这个绑定，
- *  不是那个函数本身——那个函数有 12 处测试调用，是活的。
- *  （这条是「诊断给的名字对、位置不对」的一个实例。）
- */
-export function deadImports(files) {
-  const out = [];
-  const IMPORT_RE = /import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*["\'][^"\']+["\']/g;
-  for (const [rel, text] of Object.entries(files)) {
-    const imports = [];
-    for (const m of text.matchAll(IMPORT_RE)) imports.push({ full: m[0], names: m[1] });
-    let rest = text;
-    for (const imp of imports) rest = rest.split(imp.full).join("");
-    // 注释里的名字不算使用。只剥「整行 //」与块注释：行内 // 保留，
-    // 因为字符串里也可能有 //（剥它会少算一处使用 → 多报死导入 → 假红）。
-    // 保守方向选「宁可漏报，不要假红」——假红会让人开始忽略这条判据。
-    rest = rest.replace(/\/\*[\s\S]*?\*\//g, "").split(/\r?\n/).filter((l) => !/^\s*\/\//.test(l)).join("\n");
-    for (const imp of imports) {
-      for (const rawPiece of imp.names.split(",")) {
-        const piece = rawPiece.trim();
-        if (!piece) continue;
-        const id = piece.replace(/^type\s+/, "").split(/\s+as\s+/).pop().trim();
-        if (!/^[A-Za-z_$][\w$]*$/.test(id)) continue;
-        const re = new RegExp("(^|[^.\\w$])" + id + "\\b");
-        if (!re.test(rest)) out.push(rel + "：导入的 " + id + " 在文件其余部分一次都没出现");
-      }
-    }
-  }
-  return out;
-}
 
 /** 判据覆盖矩阵：每条 kind=verdict 的规则，必须有一个「只该它成立」的输入。
  *
@@ -245,6 +145,20 @@ export function ruleMatrix(rules, judgesMod, samples, strength) {
   if (!conflicts.length) out.push("没有任何样本同时成立两条规则：判据顺序（谁先 return）这个面没被覆盖");
   return out;
 }
+
+/** KINDS 与 STRENGTH 的键集合必须相等。
+ *  2026-11-27：把强度表从判据脚本搬进 verdict.ts 时发现，两边各自维护 kind 集合——
+ *  强度表里还留着 `fold: 2`，而 fold 那个构造子已经删了。多出来的键不会报错，
+ *  只会在某天有人恢复 fold 时给出一个「看起来有定义」的强度。
+ */
+export function strengthParityProblems(kinds, strength) {
+  const out = [];
+  const k = new Set(kinds);
+  const s = new Set(Object.keys(strength || {}));
+  for (const x of s) if (!k.has(x)) out.push("强度表里有 " + x + "，但 KINDS 里没有这个构造子");
+  for (const x of k) if (!s.has(x)) out.push("KINDS 里有 " + x + "，但强度表里没有它（同时成立时会被按 0 处理）");
+  return out;
+}
 export async function check(dir = here) {
   const src = path.join(dir, "src");
   if (!fs.existsSync(src)) { console.log("缺 " + src); process.exit(2); }
@@ -281,24 +195,7 @@ export async function check(dir = here) {
   for (const p of introProblems(RULES, dir)) problems.push(p);
   for (const p of missingModules(RULES, src)) problems.push(p);
 
-  // 恒不变的模块级 let（deadConstructors 的同族第二类：那一类抓枚举值，这一类抓状态）。
-  const srcFiles = {};
-  for (const f of fs.readdirSync(src).filter((n) => n.endsWith(".ts"))) {
-    srcFiles["src/" + f] = fs.readFileSync(path.join(src, f), "utf8");
-  }
-  for (const q of staleModuleState(srcFiles)) problems.push(q);
 
-  // 死导入（2026-11-27）：具名 import 的每个绑定必须在文件其余部分至少出现一次。
-  // tsconfig 没开 noUnusedLocals，所以 tsc 不报；pi-lens 的提示常被标 [stale] 而忽略。
-  const allSrc = {};
-  for (const d of ["src", "src/algo", "src/features"]) {
-    const full = path.join(here, d);
-    if (!fs.existsSync(full)) continue;
-    for (const f of fs.readdirSync(full).filter((n) => n.endsWith(".ts"))) {
-      allSrc[d + "/" + f] = fs.readFileSync(path.join(full, f), "utf8");
-    }
-  }
-  for (const q of deadImports(allSrc)) problems.push(q);
 
   // 判据覆盖矩阵（2026-11-27）。
   // 样本表只是输入；每格的真值由各自的独立判定函数现算，胜者由下面的强度表算出。
@@ -308,8 +205,10 @@ export async function check(dir = here) {
   // 2026-11-27 实测：只有独有类时，把顺序改回 dup 先判，矩阵仍 rc=0 —— 它管不住顺序。
   const judgesMod = await import(pathToFileURL(path.join(src, "judges.ts")).href);
   const NL3 = String.fromCharCode(10);
-  // 处置强度：设计声明，不靠代码反推。retract 是「这一轮不采用」，比 strip「删几行」强。
-  const STRENGTH = { retract: 3, strip: 2, fold: 2, none: 0 };
+  // 处置强度从 src/verdict.ts 取，与 KINDS 同处——两处各写一份就会分叉，
+  // 而分叉之后矩阵会静默把新构造子按 0 处理，不报错。
+  const verdictMod = await import(pathToFileURL(path.join(src, "verdict.ts")).href);
+  const STRENGTH = verdictMod.STRENGTH || {};
   const SAMPLES = [
     { name: "中文复诵 4 行（只该 dup）", expect: "dup", text: ["做。", "做。", "做。", "做。"].join(NL3) },
     { name: "整块英文不重复（只该 lang）", expect: "lang", text: [
@@ -336,12 +235,15 @@ export async function check(dir = here) {
   ];
   for (const q of ruleMatrix(RULES, judgesMod, SAMPLES, STRENGTH)) problems.push(q);
 
+  // KINDS 与 STRENGTH 的键集合必须相等（两处写同一件事就会分叉）。
+  // 少一个：新构造子没有强度，矩阵会按 0 静默处理；多一个：强度表里有已删的构造子。
+  for (const q of strengthParityProblems(verdictMod.KINDS || [], STRENGTH)) problems.push(q);
+
   // 死构造子：Kind / Rule 里每个字面量必须真的会被产生，或在 REMOVED_RULES 里有档案。
   // 读 verdict.ts + judges.ts 的源码文本：产生处就写在里面（rule:"x" / kind:"x"）。
   const declareSrc = ["verdict.ts", "judges.ts"]
     .map((f) => fs.readFileSync(path.join(src, f), "utf8"))
     .join("\n");
-  for (const q of deadConstructors(declareSrc, new Set(REMOVED_RULES.map((r) => r.id)))) problems.push(q);
   return problems;
 }
 
@@ -390,46 +292,6 @@ if (process.argv.includes("--selftest")) {
     introProblems(introOf("x", "node --test test/strip.test.ts；期望 999 条全过、rc=0"), here).length > 0]);
   cases.push(["引入指的文件存在且条数对 → 必须绿",
     introProblems(introOf("x", "node --test test/strip.test.ts；期望 10 条全过、rc=0"), here).length === 0]);
-
-  // ⑧⑨⑩ 死构造子（2026-11-27）。喂自造类型文本，不读真实 verdict.ts——
-  //       读真实的话，有人把 fold 删了这条样本就失去意义。
-  const fakeSrc = (k, r) =>
-    "export type Kind = " + k + ";" + String.fromCharCode(10) + "export type Rule = " + r + ";" + String.fromCharCode(10);
-  const q = String.fromCharCode(34);
-  const ghost = fakeSrc(q + "none" + " | " + q + "ghost" + q, "never");
-  // none 必须带产生处，否则它自己也成了死值，样本就测不到 ghost。
-  const prod = "x({ kind: " + q + "none" + q + " })";
-  cases.push(["Kind 里一个值从不产生、也没档案 → 应红",
-    deadConstructors(ghost + prod, new Set()).length === 1]);
-  cases.push(["同一值在档案里点名 → 必须绿",
-    deadConstructors(ghost + prod, new Set(["ghost"])).length === 0]);
-  cases.push(["全部有产生处 → 必须绿（挡「一律报红」）",
-    deadConstructors(fakeSrc(q + "none" + q, "never") + prod, new Set()).length === 0]);
-
-  // ⑪⑫⑬⑭ 恒不变的模块级 let（2026-11-27）。喂自造文件文本，不读真实 src。
-  const NL2 = String.fromCharCode(10);
-  const deadState = "let a = 1;" + NL2 + "export function f() { return a; }" + NL2;
-  const liveState = "let a = 1;" + NL2 + "export function f() { a = 2; return a; }" + NL2;
-  const constState = "const a = 1;" + NL2 + "export function f() { return a; }" + NL2;
-  cases.push(["模块级 let 从不赋值 → 应红",
-    staleModuleState({ "x.ts": deadState }).length === 1]);
-  cases.push(["有赋值 → 必须绿",
-    staleModuleState({ "x.ts": liveState }).length === 0]);
-  cases.push(["const（本意就是常量）→ 必须绿",
-    staleModuleState({ "x.ts": constState }).length === 0]);
-  cases.push(["注释里提到名字不算赋值 → 仍应红",
-    staleModuleState({ "x.ts": "let a = 1;" + NL2 + "// a = 2 是注释" + NL2 }).length === 1]);
-
-  // ⑮⑯⑰⑱ 死导入（2026-11-27）。喂自造 import 文本，不读真实 src。
-  const imp = (names, body) => "import { " + names + " } from " + q + "./m.ts" + q + ";" + NL2 + body + NL2;
-  cases.push(["导入但不用 → 应红",
-    deadImports({ "x.ts": imp("a, b", "b();") }).length === 1]);
-  cases.push(["导入且用 → 必须绿",
-    deadImports({ "x.ts": imp("a, b", "a(); b();") }).length === 0]);
-  cases.push(["type 前缀与 as 别名都要认 → 用别名时必绿",
-    deadImports({ "x.ts": imp("type T, b as c", "c();") }).length === 1]);
-  cases.push(["名字只出现在注释里 → 仍应红（注释不算使用）",
-    deadImports({ "x.ts": imp("a", "// a 是注释") }).length === 1]);
 
   // ⑲⑳㉑ 覆盖矩阵（2026-11-27）。喂假 judges，不读真实 src/judges.ts——
   // 读真实的话，判据坏了也会因为「真实实现恰好对」而绿。
