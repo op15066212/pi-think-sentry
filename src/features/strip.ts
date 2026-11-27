@@ -97,16 +97,10 @@ export default {
   clean(content: any, v: any, min: any) {
     const source = Array.isArray(content) ? content : [];
     const floor = threshold(min, STRIP_MIN, "strip.min.clean");
-    // 按构造子分派，不按 rule：strip 与 fold 是两个动作（整行删 / 行内折叠）。
-    // 这里用 switch 而不是 if，是为了让 tsc 查穷尽——将来加第五种构造子，
+    // 按构造子分派，不按 rule：三种动作各自成型（none 不动 / strip 整行删 / retract 不采用）。
+    // 这里用 switch 而不是 if，是为了让 tsc 查穷尽——将来加新构造子，
     // 漏改这里会在编译期报 `never` 不可赋值。
     switch (v?.kind) {
-      case "fold":
-        // run 判据的 ev 没有行号：它判的是「最长的一条重复有多长」，不是「哪一行重复了」。
-        // 所以不能走 foldInline（那需要行号），改用 LZ 自己的去重结果——
-        // 与判定同源：判出「最长的匹配」和「把匹配折掉」用的是同一次解析，不是两套逻辑。
-        if (v?.rule === "run") return dedupByLz(source, floor);
-        return foldInline(source, v, floor);
       case "strip":
         break;
       case "retract":

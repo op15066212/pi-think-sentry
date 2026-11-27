@@ -67,10 +67,37 @@ export function introProblems(rules, dir) {
   }
   return out;
 }
+
+/** Kind / Rule 里每个字面量，要么真的会被产生，要么有档案（REMOVED_RULES 点名）。
+ *
+ *  2026-11-27（组 1 在 session-doctor 抓到同族缺陷：KIND.UNREACHABLE 只有定义，
+ *  grep "KIND.UNREACHABLE" 命中 0——那个异常类永远不会产生）。我仓同族更隐蔽：
+ *  Kind 里的 fold 有消费分支（features/strip.ts 的 case "fold"）、能被 Verdict.parse 接受，
+ *  但全仓没有任何一处产生 kind: "fold"。于是那条分支永不执行，而它看起来是活的。
+ *
+ *  为什么这比缺样本更坏：覆盖率/待办表里它永远占一格，人读到的是「还没写」而不是「不存在」。
+ *
+ *  返回问题列表；纯函数，坏样本直接喂。 */
+export function deadConstructors(srcText, archivedIds) {
+  const out = [];
+  const kindBlk = srcText.match(/export type Kind\s*=([^;]+);/);
+  const ruleBlk = srcText.match(/export type Rule\s*=([^;]+);/);
+  const pick = (blk) => (blk ? [...blk[1].matchAll(/"([a-z][a-z0-9-]*)"/g)].map((m) => m[1]) : []);
+  const pairs = [["kind", pick(kindBlk)], ["rule", pick(ruleBlk)]];
+  for (const [field, names] of pairs) {
+    for (const n of names) {
+      const produced = (srcText.split(field + ": \"" + n + "\"").length - 1) > 0;
+      if (produced) continue;
+      if (archivedIds.has(n)) continue; // 有档案：REMOVED_RULES 里点名并写了 why
+      out.push(field + " \"" + n + "\"：永不产生，也没有档案（REMOVED_RULES 里没有它）");
+    }
+  }
+  return out;
+}
 export async function check(dir = here) {
   const src = path.join(dir, "src");
   if (!fs.existsSync(src)) { console.log("缺 " + src); process.exit(2); }
-  const { RULES } = await import(pathToFileURL(path.join(src, "meta.ts")).href);
+  const { RULES, REMOVED_RULES } = await import(pathToFileURL(path.join(src, "meta.ts")).href);
   const problems = [];
 
   const judges = fs.readFileSync(path.join(src, "judges.ts"), "utf8");
@@ -102,6 +129,13 @@ export async function check(dir = here) {
 
   for (const p of introProblems(RULES, dir)) problems.push(p);
   for (const p of missingModules(RULES, src)) problems.push(p);
+
+  // 死构造子：Kind / Rule 里每个字面量必须真的会被产生，或在 REMOVED_RULES 里有档案。
+  // 读 verdict.ts + judges.ts 的源码文本：产生处就写在里面（rule:"x" / kind:"x"）。
+  const declareSrc = ["verdict.ts", "judges.ts"]
+    .map((f) => fs.readFileSync(path.join(src, f), "utf8"))
+    .join("\n");
+  for (const q of deadConstructors(declareSrc, new Set(REMOVED_RULES.map((r) => r.id)))) problems.push(q);
   return problems;
 }
 
@@ -150,6 +184,21 @@ if (process.argv.includes("--selftest")) {
     introProblems(introOf("x", "node --test test/strip.test.ts；期望 999 条全过、rc=0"), here).length > 0]);
   cases.push(["引入指的文件存在且条数对 → 必须绿",
     introProblems(introOf("x", "node --test test/strip.test.ts；期望 10 条全过、rc=0"), here).length === 0]);
+
+  // ⑧⑨⑩ 死构造子（2026-11-27）。喂自造类型文本，不读真实 verdict.ts——
+  //       读真实的话，有人把 fold 删了这条样本就失去意义。
+  const fakeSrc = (k, r) =>
+    "export type Kind = " + k + ";" + String.fromCharCode(10) + "export type Rule = " + r + ";" + String.fromCharCode(10);
+  const q = String.fromCharCode(34);
+  const ghost = fakeSrc(q + "none" + " | " + q + "ghost" + q, "never");
+  // none 必须带产生处，否则它自己也成了死值，样本就测不到 ghost。
+  const prod = "x({ kind: " + q + "none" + q + " })";
+  cases.push(["Kind 里一个值从不产生、也没档案 → 应红",
+    deadConstructors(ghost + prod, new Set()).length === 1]);
+  cases.push(["同一值在档案里点名 → 必须绿",
+    deadConstructors(ghost + prod, new Set(["ghost"])).length === 0]);
+  cases.push(["全部有产生处 → 必须绿（挡「一律报红」）",
+    deadConstructors(fakeSrc(q + "none" + q, "never") + prod, new Set()).length === 0]);
 
   let n = 0;
   for (const [name, ok] of cases) {

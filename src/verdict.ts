@@ -10,21 +10,21 @@
 // 新形状：判决是**依赖和类型**（Σ-类型），证据的形状随构造子变化：
 //
 //   Γ ⊢ 判决 : Verdict            Verdict = Σ(k : Kind). EvOf(k)
-//   Kind      = none | strip | fold | retract
+//   Kind      = none | strip | retract
+//   （fold 2026-11-27 删除：inline / run / shape 三个 rule 都不再产生判决，于是没有任何一处产生 fold。）
 //   EvOf(none)    = NoneEv        { line? }
 //   EvOf(strip)   = DupEv         { blk, reps, why, dups, line }      deps = 行号
-//   EvOf(fold)    = InlineEv      { blk, reps, why, dups, line }      deps = 句（同行内）
 //   EvOf(retract) = LangEv        { cjk, lat, lines, dir, sample, line }
 //
 //   RuleOf : Kind → Set Rule       -- 构造子决定来源的取值集合
 //   RuleOf(none)    = { dup, inline, lang }
 //   RuleOf(strip)   = { dup }
-//   RuleOf(fold)    = { inline }
 //   RuleOf(retract) = { lang }
 //
 // 「strip 配 inline」这个组合**在类型里不存在**，所以没有可写的运行时检查——
-// 不是「检查了才不出现」，是「写不出来」。这正是 fold 独立成一个 kind 的理由：
-// 它的动作（折叠一段，保留该行其余内容）与 strip（整行删除）不同，同一个 kind 装不下。
+// 不是「检查了才不出现」，是「写不出来」。
+// 曾经的理由是「fold 的动作（折叠一段、保留该行其余内容）与 strip 不同」，
+// 但 fold 从来没有产生点——那句话描述的是一个不会发生的情况，所以 2026-11-27 一起删了。
 //
 // 穷尽性：每个消费点（strip.clean / 统计）都用 switch 覆盖 Kind，
 // default 走 assertNever。加一个 kind 而漏改一处 → tsc 报错（`never` 不可赋值）。
@@ -40,20 +40,18 @@
 const bad = (why: any) => { throw new Error("verdict: " + why); };
 const isNum = (x: any) => typeof x === "number" && Number.isFinite(x);
 
-export type Kind = "none" | "strip" | "fold" | "retract";
+export type Kind = "none" | "strip" | "retract";
 // prefix 曾经是一个规则名，但它就是 shape 的行首维度（配置键名沿用旧名）。
 // 一个判据两个入口 = 同一真值两处各写一遍，所以名字收成一个：shape。
 export type Rule = "dup" | "inline" | "lang" | "run" | "shape";
 
 /** 构造子的穷尽清单。顺序即文档顺序，不再单独维护一份 KINDS 字符串数组。 */
-export const KINDS: readonly Kind[] = ["none", "strip", "fold", "retract"];
+export const KINDS: readonly Kind[] = ["none", "strip", "retract"];
 
 /** RuleOf：每个 kind 允许哪些来源。表即证明——不在这张表里的组合 parse 直接抛。 */
 const RULE_OF: Record<Kind, readonly Rule[]> = {
   none: ["dup", "inline", "lang", "run", "shape"],
   strip: ["dup"],
-  // run 判红时复用 fold：动作一样是折叠重复段，ev 形状与 inline 相同。
-  fold: ["inline", "run", "shape"],
   retract: ["lang"],
 };
 
@@ -68,8 +66,8 @@ const checkLine = (ev: any) => {
   if (!(isNum(ev.line) && ev.line >= 1)) bad("ev.line");
 };
 
-// 重复类证据（strip 与 fold 同形，语义不同：dups[i][2] 在 strip 是「重复的行号」，
-// 在 fold 是「同一句所在的行号」）。形状同、语义异 —— 所以是两个构造子共用一个校验器，
+// 重复类证据的形状曾由 strip 与 fold 共用（一方是「重复的行号」，一方是「同一句所在的行号」）；
+// fold 删除后只剩 strip 一个使用者，校验器保留，因为 ev 的形状仍来自判据而不是 kind。
 // 而不是一个 kind 带一个 scope 标签。
 const checkDups = (ev: any, unit: string) => {
   if (ev.blk !== null && typeof ev.blk !== "string") bad("ev.blk");
