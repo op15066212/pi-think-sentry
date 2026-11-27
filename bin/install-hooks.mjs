@@ -21,14 +21,22 @@ import { fileURLToPath } from "node:url";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-const HOOK = "#!/bin/sh\n# pre-push —— rc=1 不许推。由 bin/install-hooks.mjs 装。\n# 判据只看退出码，不看文本：npm run verify 的 rc 非 0 就 exit 1。\n# 日志留一份在 .git/pre-push-verify.log，被拒时人知道红在哪。\ncd \"$(git rev-parse --show-toplevel)\" || exit 1\nLOG=\".git/pre-push-verify.log\"\nnpm run verify >\"$LOG\" 2>&1\nrc=$?\nif [ $rc -ne 0 ]; then\n  echo \"pre-push 拒收：npm run verify rc=$rc\"\n  echo \"红在哪：tail -30 $LOG\"\n  exit 1\nfi\nexit 0\n" + "\n";
+const HOOK = "#!/bin/sh\n# pre-push —— rc=1 不许推。由 bin/install-hooks.mjs 装。\n# 判据只看退出码，不看文本：npm run verify 的 rc 非 0 就 exit 1。\n# 日志写进 git 目录（不是 .git/：worktree 里 .git 是个文件，写不进去）。\ncd \"$(git rev-parse --show-toplevel)\" || exit 1\nLOG=\"$(git rev-parse --git-dir)/pre-push-verify.log\"\nnpm run verify >\"$LOG\" 2>&1\nrc=$?\nif [ $rc -ne 0 ]; then\n  echo \"pre-push 拒收：npm run verify rc=$rc\"\n  echo \"红在哪：tail -30 $LOG\"\n  exit 1\nfi\nexit 0\n" + "\n";
 
-const gitDir = execFileSync("git", ["-C", REPO, "rev-parse", "--git-dir"], { encoding: "utf8" }).trim();
-const dir = path.resolve(REPO, gitDir, "hooks");
+// hooks 目录不能用 --git-dir 拼：worktree 里它指向 .git/worktrees/<名>，那里也有一个
+// hooks/ 目录，但 git 根本不读，于是装完照样不生效、还打印「已装」——假绿。
+// git 自己的答案是 --git-path hooks，普通克隆与 worktree 两种情况都对。
+const dir = path.resolve(REPO, execFileSync("git", ["-C", REPO, "rev-parse", "--git-path", "hooks"], { encoding: "utf8" }).trim());
 fs.mkdirSync(dir, { recursive: true });
 const target = path.join(dir, "pre-push");
 fs.writeFileSync(target, HOOK, { mode: 0o755 });
 try { fs.chmodSync(target, 0o755); } catch {}
+
+// 装完读回来比对：写进去的必须是这一份。路径选错时这里红，而不是打印一句「已装」。
+if (fs.readFileSync(target, "utf8") !== HOOK) {
+  console.error("装完读回内容不一致：" + target);
+  process.exit(1);
+}
 
 console.log("已装 " + path.relative(REPO, target));
 console.log("判据：npm run verify 的 rc 非 0 时，git push 被拒（exit 1）");
