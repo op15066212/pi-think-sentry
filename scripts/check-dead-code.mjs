@@ -120,55 +120,12 @@ export function deadImports(files) {
 }
 
 
-/** 注释里出现的「像标识符的驼峰名」，若在代码里一次都不出现，就是死引用。
- *
- *  2026-11-27 实测三处（都是我自己造成的）：
- *    test/harness.ts      「redCalls 按 lastV 自增」      lastV 已删
- *    test/install.test.ts 「STREAM 只把 strip 记进 lastV」 同上
- *    src/index.ts         「原来那一堆 lastThink/lastV 都没了」 这句是对的（它说的是历史）
- *
- *  所以这条不能简单报「注释里的名字不存在」——区分「历史叙述」与「指向活物」需要语义，判据给不出。
- *  能判的是更窄的一条：**注释里的名字若既不在代码里、也不在 REMOVED 档案里，就要人看一眼**。
- *  它不判对错，只把候选列出来，数量必须为 0 或全在豁免表里。
- *
- *  豁免表写在下面 ALLOW：每条要写出理由。这张表只能缩小。
- */
-export const COMMENT_ALLOW = new Map([
-  // 历史叙述：这些名字在注释里是为了说明「当时是这样，现在不是」，不是指向活代码。
-  ["lastV", "2026-11-27 删掉的跨帧缓存，注释仍在讲历史"],
-  ["lastThink", "同上"],
-  ["lastRedThink", "同上"],
-  ["redFrames", "同上（更早的帧级状态机）"],
-  ["sawRed", "同上"],
-  ["inline", "REMOVED_RULES 里已归档的判据，注释在讲它为什么被删"],
-  ["run", "同上"],
-  ["shape", "同上"],
-]);
-
-/** 从源码里挑「注释块中的裸标识符」，返回不在代码里、也不在豁免表里的那些。 */
-// 2026-11-27 未接线（撤掉了调用）：这条判据跑真实 src 报 12 处，12 处全是假阳性——
-//   toolResult / parentId / matchAll / emitError … 它们是事件名、字段名、标准库 API，
-//   在注释里出现是正常的。假阳性率 100% 意味着它测的不是「死引用」，是「驼峰名」。
-// 按「造不出只有它该红的输入就不做」：函数留着（它描述的问题是真的，harness.ts 的 lastV 就是），
-// 但不接进 check()，因为接进去只会让人开始忽略 check-dead-code 的红。
-// 要重新接线，先造一个「注释提到一个只存在于旧版本的名字」的真样本，且假的驼峰名不被报。
-export function deadMentions(text, allow = COMMENT_ALLOW) {
-  const lines = text.split(/\r?\n/);
-  const code = lines.filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n");
-  const comments = lines.filter((l) => /^\s*(\/\/|\*|\/\*)/.test(l)).join("\n");
-  const out = [];
-  const seen = new Set();
-  // 只挑驼峰或下划线连接的多词名：单个小写词（如 hook / 事件名）误报太多，不挑。
-  for (const m of comments.matchAll(/\b([a-z][a-zA-Z0-9]*(?:[A-Z][a-zA-Z0-9]*)+)\b/g)) {
-    const name = m[1];
-    if (seen.has(name)) continue;
-    seen.add(name);
-    if (allow.has(name)) continue;
-    if (code.includes(name)) continue;
-    out.push(name);
-  }
-  return out;
-}
+// 2026-11-27 撤掉一条判据（留记录，不留代码）：曾经想查「注释提到的标识符在代码里是否存在」。
+// 实测假阳性 12/12（toolResult / parentId / matchAll / emitError … 是事件名、字段名、标准库 API），
+// 假阳性 100% 说明它测的不是「死引用」，是「驼峰名」。
+// 按「造不出只有它该红的输入就不做」：函数与豁免表一并删除，不留未接线的代码。
+// 同类真事故仍在 src/index.ts:135 那几行注释里（lastThink / lastV 已删、注释曾指向它们），
+// 修法是把注释改准，不是加一条会报 12 个假警报的判据。
 /** 给一个目录，跑三类死代码检查。返回问题列表。 */
 // 默认根目录是仓根（scripts/ 的上一级）：下面既找 dir/src，也找 仓根 之类。
 const ROOT = path.resolve(here, "..");
