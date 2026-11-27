@@ -155,20 +155,7 @@ function dupOn(lines: Line[], cfg: JudgeCfg) {
 
 
 
-const countCjk = (s: any) => (s.match(/[\u3400-\u4dbf\u4e00-\u9fff]/g) || []).length;
-const countLat = (s: any) => (s.match(/[A-Za-z]/g) || []).length;
-const countTarget = (s: string, dir: "zh" | "en") => (dir === "en" ? countLat(s) : countCjk(s));
-// 一次扫描同时数中文与拉丁字母（2026-11-25）。
-//
-// 为什么手写循环，不用正则：实测 11489 字文本，重复 500 次取均——
-//   两次 match（原始写法）   0.1049 ms
-//   一次 matchAll            0.3027 ms   ← 我第一版以为合并成正则更快，实测慢 3 倍
-//   手写 charCodeAt 循环     0.0318 ms   ← 快 3.3 倍
-//
-// matchAll 每步返回迭代器对象，开销在分配不在匹配。三个实现结果逐字相同
-//（cjk 8800 / lat 0），所以换实现不换判据。
-//
-// 反例：用 [^\x00-\x7f] 数中文——全角标点、日文、emoji 都会被算进去。
+// 一次扫描同时完成行投票与字符统计；避免先逐行扫描、再 join 后第二次扫描。
 const countBoth = (s: string) => {
   let cjk = 0, lat = 0;
   for (let i = 0; i < s.length; i++) {
@@ -181,37 +168,26 @@ const countBoth = (s: string) => {
   }
   return { cjk, lat };
 };
-
-export const langJudge = (text: any, cfg: JudgeCfg = judgeCfg()) => langOn(voteOf(partitionLines(text)), cfg);
-
-// 判据二：一行一行数起来比。**非目标语言的行数 > 目标语言的行数就判。**
-//
-// 这是使用者的定义（2026-11-19），也是这里唯一跑的东西。
-//
-// R12：此前跑的不是它。R5（复核 b711ced1 的 discuss-r5-b711ced1.md:139）把
-// 「有汉字就算中文行」改成「行内汉字占比 >= 0.3」，又加了「本块字符比 < 0.3 判红」，
-// 我采纳了，于是判据从**行数**变成了**字符比**。实测同一批 4855 个思考块：
-//   使用者定义判红 488 块 / 字符比判红 735 块 / 只有字符比红 247 块 / 只有行数红 0 块。
-// 多出来的 247 块全部是「中文行数够多，但引用代码把字符比拉低」。
-// 我为它加过 ref 类、剥反引号、剥路径三层补丁，全是在给这 247 块擦地。已删。
-//
-// 代价写清：模型若每行塞一两个汉字，行数投票就过。这是**定义本身的边界**，
-// 不是实现缺陷；要收它得先改定义。
 function langOn(lines: Line[], cfg: JudgeCfg) {
   const dir = cfg.langDir;
   let keep = 0, off = 0;
   let sample: string | null = null;
   let badLine: number | null = null;
+  let cjk = 0, lat = 0;
   for (const line of lines) {
-    if (countTarget(line.t, dir) > 0) keep++;
+    const counts = countBoth(line.t);
+    cjk += counts.cjk;
+    lat += counts.lat;
+    const target = dir === "en" ? counts.lat : counts.cjk;
+    if (target > 0) keep++;
     else { off++; if (sample === null) sample = line.t; if (badLine === null) badLine = line.i + 1; }
   }
-  const joined = lines.map((x) => x.t).join(String.fromCharCode(10));
-  const counts = countBoth(joined);
-  const ev = { cjk: counts.cjk, lat: counts.lat, lines: off, dir, sample, line: badLine };
+  const ev = { cjk, lat, lines: off, dir, sample, line: badLine };
   if (off > keep) return Verdict.parse({ kind: "retract", rule: "lang", ev });
   return none("lang", ev);
 }
+
+export const langJudge = (text: any, cfg: JudgeCfg = judgeCfg()) => langOn(voteOf(partitionLines(text)), cfg);
 
 
 
