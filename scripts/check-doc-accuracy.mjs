@@ -127,6 +127,52 @@ export function defaultsMismatch(text, defaults) {
   }
   return bad;
 }
+
+/** 文档里那段 ```json 全文块。它是唯一能直接贴进配置文件的东西，也是第二处真值。
+ *  为什么单独一个函数：模块表格（人能读的那处）与 JSON 全文（能复制的那处）是两处，
+ *  只验一处时另一处写成什么都不报——2026-11-27 组 1 复算出这个缺口：
+ *  把 JSON 全文里的 dup.min 从 4 改成 3，本脚本 rc=0。 */
+export function jsonBlockOf(text) {
+  const lines = text.split(/\r?\n/);
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^```json\s*$/.test(lines[i].trim())) { start = i + 1; break; }
+  }
+  if (start < 0) return null;
+  const body = [];
+  for (let i = start; i < lines.length; i++) {
+    if (lines[i].trim().startsWith("```")) break;
+    body.push(lines[i]);
+  }
+  return body.join("\n");
+}
+
+/** 嵌套对象拍平成 "模块.键"：既方便比对，也让报错能指名到叶子。 */
+export function flattenDefaults(o, prefix = "", out = {}) {
+  for (const [k, v] of Object.entries(o)) {
+    const key = prefix ? prefix + "." + k : k;
+    if (v && typeof v === "object" && !Array.isArray(v)) flattenDefaults(v, key, out);
+    else out[key] = String(v);
+  }
+  return out;
+}
+
+/** JSON 全文块与 DEFAULTS 的差异。块本身解析不了也算一处——文档里那段必须能直接粘贴使用。 */
+export function jsonDefaultsMismatch(text, defaults) {
+  const body = jsonBlockOf(text);
+  if (body === null) return ["没有 ```json 全文块：文档里那段能直接粘贴的配置不见了"];
+  let doc;
+  try { doc = JSON.parse(body); } catch (e) { return ["```json 全文块解析不了：" + String(e.message).slice(0, 80)]; }
+  const want = flattenDefaults(defaults);
+  const got = flattenDefaults(doc);
+  const bad = [];
+  for (const [k, v] of Object.entries(want)) {
+    if (!(k in got)) { bad.push("JSON 全文缺键 " + k); continue; }
+    if (got[k] !== v) bad.push("JSON 全文 " + k + " 文档写 " + got[k] + "，代码是 " + v);
+  }
+  for (const k of Object.keys(got)) if (!(k in want)) bad.push("JSON 全文有 DEFAULTS 里没有的键 " + k);
+  return bad;
+}
 export function check(docs = DOCS, root = here) {
   const problems = [];
   for (const doc of docs) {
@@ -138,7 +184,9 @@ export function check(docs = DOCS, root = here) {
     }
     // 默认值对拍：只在 SETTINGS.md 上做（它是唯一声明默认值的那份文档）。
     if (rel.endsWith("SETTINGS.md")) {
+      // 两处都验：模块表格（人能读的那处）与 JSON 全文（能直接粘贴的那处）。
       for (const b of defaultsMismatch(text, DEFAULTS)) problems.push(rel + "：" + b);
+      for (const b of jsonDefaultsMismatch(text, DEFAULTS)) problems.push(rel + "：" + b);
     }
     for (const p of pathsIn(text)) {
       const cands = [path.join(root, p), path.join(root, "src", p), path.join(root, "scripts", p), path.join(root, "test", p), path.join(root, "bin", p)];
@@ -166,9 +214,16 @@ if (import.meta.main && process.argv.includes("--selftest")) {
   // 默认值对拍：文档写 3、代码写 4 时必须红（2026-11-27 实测过的缺口）。
   const dm = defaultsMismatch("### dup · 重复行\n\n| " + TICK + "min" + TICK + " | " + TICK + "3" + TICK + " | 次数 |\n", { dup: { on: true, min: 4 } });
   const dg = defaultsMismatch("### dup · 重复行\n\n| " + TICK + "min" + TICK + " | " + TICK + "4" + TICK + " | 次数 |\n", { dup: { on: true, min: 4 } });
+  // JSON 全文块：组 1 复算出的那一处（2026-11-27）。
+  const jm = jsonDefaultsMismatch("```json\n{ \"dup\": { \"on\": true, \"min\": 3 } }\n```\n", { dup: { on: true, min: 4 } });
+  const jg = jsonDefaultsMismatch("```json\n{ \"dup\": { \"on\": true, \"min\": 4 } }\n```\n", { dup: { on: true, min: 4 } });
+  const jbroken = jsonDefaultsMismatch("```json\n{ \"dup\": { \"on\": true }\n```\n", { dup: { on: true, min: 4 } });
   const checks = [
     ["文档默认值与代码不同 → 必须红", dm.length > 0, true],
     ["文档默认值与代码相同 → 必须绿", dg.length === 0, true],
+    ["JSON 全文默认值与代码不同 → 必须红", jm.length > 0, true],
+    ["JSON 全文默认值与代码相同 → 必须绿", jg.length === 0, true],
+    ["JSON 全文块坏掉（不能直接粘贴）→ 必须红", jbroken.length > 0, true],
     ["配置小节里写了已删的键 strict → 必须红", badProblems.length > 0, true],
     ["配置小节里只写真实键 → 必须绿", goodProblems.length === 0, true],
     ["非配置小节的表首格是度量名 → 必须绿（这是那 9 处误报的形状）", metricProblems.length === 0, true],
