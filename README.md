@@ -68,11 +68,16 @@
 ## 判据怎么验
 
 ```bash
+npm ci                        # 第一步，先装依赖（见下）
 npm test                      # 单元测试，rc=0
 npm run verify                # 上面这些 + 指纹自检 + 总闸，rc=0 才算干净
 node scripts/gate.mjs         # 总闸：glob 发现 scripts/check-*.mjs 与根 verify-*.mjs
 node scripts/check-rules-coverage.mjs   # 规则表与实现对齐
 ```
+
+**新克隆、新 worktree 的第一条必须是 `npm ci`。** 不装依赖直接跑 `npm run verify` 会红在两条 tsc 用例上
+（`Cannot find module .../typescript/bin/tsc`），那是环境缺失，不是代码坏。这个形状骗过我自己两次：
+看到红就去查 diff，查完发现只是没装。判据一样：`ls node_modules | wc -l` 为 0 时，任何红都不作数。
 
 总闸自己也要能红：往 `scripts/` 塞一个 `check-` 开头、返回 1 的临时脚本，总闸必须 rc=1 并点名它。
 
