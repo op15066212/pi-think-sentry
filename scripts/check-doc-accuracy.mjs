@@ -9,6 +9,7 @@
 //
 // rc: 0 全对得上｜1 有对不上的｜2 文档目录缺失
 import fs from "node:fs";
+import { DEFAULTS } from "../src/defaults.ts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -85,6 +86,47 @@ export function pathsIn(text) {
   return out;
 }
 
+/** SETTINGS.md 表格里声明的默认值：{ 模块: { 键: 字面量 } }。
+ *  形状是三级标题「### dup · 重复行」下面的「| 键 | 默认 | …|」。 */
+export function defaultsIn(text) {
+  const out = {};
+  const T = String.fromCharCode(96);
+  let mod = null;
+  for (const line of text.split(/\r?\n/)) {
+    const h = line.match(/^###\s+([a-z][a-zA-Z0-9]*)\s*·/);
+    if (h) { mod = h[1]; out[mod] = out[mod] || {}; continue; }
+    if (/^#{1,2}\s/.test(line)) { mod = null; continue; }
+    if (!mod || !line.startsWith("|")) continue;
+    const cells = line.split("|").slice(1, -1).map((c) => c.trim());
+    if (cells.length < 2) continue;
+    if (!cells[0].startsWith(T) || !cells[0].endsWith(T)) continue;
+    const key = cells[0].slice(1, -1).trim();
+    if (!/^[a-z][a-zA-Z0-9_]*$/.test(key)) continue;
+    const v = cells[1].replace(/`/g, "").trim();
+    if (v === "默认" || v === "---" || !v) continue;
+    out[mod][key] = v;
+  }
+  return out;
+}
+
+/** 文档里的默认值是否等于代码里的默认值。
+ *  为什么要有：同一个默认值只在 defaults.ts 一处写，文档是第二处。
+ *  2026-11-27 实测缺口：把 SETTINGS.md 的 dup.min 从 4 改成 3，
+ *  check-doc-accuracy 与 208 条测试全绿——「文档与代码一致」是没人看的面。 */
+export function defaultsMismatch(text, defaults) {
+  const bad = [];
+  for (const [mod, kv] of Object.entries(defaultsIn(text))) {
+    const code = defaults[mod];
+    if (!code) { bad.push("模块 " + mod + " 在 DEFAULTS 里不存在"); continue; }
+    for (const [k, v] of Object.entries(kv)) {
+      if (!(k in code)) { bad.push(mod + "." + k + " 不在 DEFAULTS 里"); continue; }
+      const want = typeof code[k] === "string" ? code[k] : String(code[k]);
+      const got = v.replace(/^"|"$/g, "");
+      if (got !== want) bad.push(mod + "." + k + " 文档写 " + v + "，代码是 " + JSON.stringify(code[k]));
+    }
+  }
+  return bad;
+}
 export function check(docs = DOCS, root = here) {
   const problems = [];
   for (const doc of docs) {
@@ -93,6 +135,10 @@ export function check(docs = DOCS, root = here) {
     for (const k of keysIn(text)) {
       const leaf = k.includes(".") ? k.split(".").pop() : k;
       if (!cfgKeys.has(leaf)) problems.push(rel + "：配置键 " + k + " 在 config.ts / defaults.ts 里不存在");
+    }
+    // 默认值对拍：只在 SETTINGS.md 上做（它是唯一声明默认值的那份文档）。
+    if (rel.endsWith("SETTINGS.md")) {
+      for (const b of defaultsMismatch(text, DEFAULTS)) problems.push(rel + "：" + b);
     }
     for (const p of pathsIn(text)) {
       const cands = [path.join(root, p), path.join(root, "src", p), path.join(root, "scripts", p), path.join(root, "test", p), path.join(root, "bin", p)];
@@ -117,7 +163,12 @@ if (import.meta.main && process.argv.includes("--selftest")) {
   const badProblems = check([bad], tmp);
   const goodProblems = check([good], tmp);
   const metricProblems = check([metric], tmp);
+  // 默认值对拍：文档写 3、代码写 4 时必须红（2026-11-27 实测过的缺口）。
+  const dm = defaultsMismatch("### dup · 重复行\n\n| " + TICK + "min" + TICK + " | " + TICK + "3" + TICK + " | 次数 |\n", { dup: { on: true, min: 4 } });
+  const dg = defaultsMismatch("### dup · 重复行\n\n| " + TICK + "min" + TICK + " | " + TICK + "4" + TICK + " | 次数 |\n", { dup: { on: true, min: 4 } });
   const checks = [
+    ["文档默认值与代码不同 → 必须红", dm.length > 0, true],
+    ["文档默认值与代码相同 → 必须绿", dg.length === 0, true],
     ["配置小节里写了已删的键 strict → 必须红", badProblems.length > 0, true],
     ["配置小节里只写真实键 → 必须绿", goodProblems.length === 0, true],
     ["非配置小节的表首格是度量名 → 必须绿（这是那 9 处误报的形状）", metricProblems.length === 0, true],
