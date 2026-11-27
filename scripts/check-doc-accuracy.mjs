@@ -10,7 +10,7 @@
 // rc: 0 全对得上｜1 有对不上的｜2 文档目录缺失
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 const here = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const TICK = String.fromCharCode(96);
@@ -104,7 +104,7 @@ export function check(docs = DOCS, root = here) {
 
 // selftest 分支也受 isMain 保护（2026-11-25）：别的脚本带 --selftest 去 import 它时，
 // 跑的是它的自检并直接 exit，外层那个脚本的自检根本没执行。
-if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url && process.argv.includes("--selftest")) {
+if (import.meta.main && process.argv.includes("--selftest")) {
   const tmp = fs.mkdtempSync(path.join(process.env.TEMP || "/tmp", "docacc-"));
   const bad = path.join(tmp, "bad.md");
   const good = path.join(tmp, "good.md");
@@ -132,7 +132,7 @@ if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url &
 // 只在被直接执行时跑主流程（2026-11-25）。此前 import 这个文件会直接跑完 check() 并 process.exit，
 // 于是别的脚本想复用它里面的 keysIn/pathsIn 就做不到。
 // 结果就是同一份逻辑在两个仓里各抄一遍，抄到两边行为不一致。
-const isMain = process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url;
+const isMain = import.meta.main;
 if (isMain) {
   const problems = check();
   for (const p of problems) console.log("红  " + p);

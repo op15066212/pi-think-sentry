@@ -95,8 +95,7 @@ export function check(dir = here) {
 // isMain 保护（2026-11-25，这条判据抓到它自己缺的）：
 // 没有它时 import 本文件会跑 check()，而 check() 会 spawn 本文件做 B 方向测试，
 // 于是递归到底。判据抓到自己，是它该有的样子。
-const norm = (x) => String(x || "").split(String.fromCharCode(92)).join("/");
-const isMain = !!process.argv[1] && norm(fileURLToPath(import.meta.url)) === norm(process.argv[1]);
+const isMain = import.meta.main;
 
 if (isMain && process.argv.includes("--selftest")) {
   const cases = [
