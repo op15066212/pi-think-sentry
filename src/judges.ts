@@ -240,10 +240,17 @@ export function judgeThinking(text: any, patch: Partial<JudgeCfg> = {}) {
   // 整体判据先跑（2026-11-24 修）：它比 dup/inline 更准——不切分，一次扫描取最长匹配。
   // 原来放在它们之后，于是 31 行「做。」先被 dup 判红，run 永远轮不到。
   // 「更准的先判」不是效率问题：先判的那条决定了 ev 的形状，也就决定了处置怎么走。
-  if (cfg.dupOn) {
-    const d = dupOn(lines, cfg);  // lines 就是 voteOf(all)，上面已算过
-    if (d.kind !== "none") return d;
+  // 顺序按「处置强度」，不按「准确度」：retract（这一轮不采用）比 strip（删几行）更强，
+  // 所以 lang 先判。2026-11-27 实测到的缺陷：原来 dup 先判并 return，于是
+  // 「英文复诵 4 行」这种同时命中两条的输入只报 dup/strip —— 整块英文思考被删掉重复行后
+  // 仍然被采用，lang 那条保护等于不存在。
+  // 判据：node --experimental-strip-types scripts/check-judge-order.mjs
+  //   英文复诵 → kind=retract rule=lang（改前是 strip/dup）
+  //   中文复诵 → 仍是 strip/dup（lang 不成立，不该被吃掉）
+  if (cfg.langOn) {
+    const l = langOn(lines, cfg);
+    if (l.kind !== "none") return l;
   }
-  if (!cfg.langOn) return none("lang", { cjk: 0, lat: 0, lines: 0, dir: cfg.langDir, sample: null });
-  return langOn(lines, cfg);
+  if (!cfg.dupOn) return none("dup", { blk: null, reps: 0, why: "dup off", dups: [] });
+  return dupOn(lines, cfg);
 }
