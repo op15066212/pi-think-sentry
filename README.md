@@ -22,7 +22,7 @@
 
 ## 配置
 
-配置文件为插件目录下的 `settings.json`，首次运行生成。配置在 `session_start` 读取；改动从下一轮会话启动时生效。默认值唯一来源为 `src/defaults.ts`，完整字段和取值见 [SETTINGS.md](SETTINGS.md)。
+配置文件为插件目录下的 `settings.json`，首次运行生成。`tool_call` 与 `turn_end` 入口会检测文件变化并重读；改动在下一次相关钩子调用生效，不必等新会话。默认值唯一来源为 `src/defaults.ts`，完整字段和取值见 [SETTINGS.md](SETTINGS.md)。
 
 常用项：
 
@@ -60,5 +60,5 @@ node scripts/check-rules-coverage.mjs
 | --- | --- |
 | 没有拦截 | 检查 provider 绑定、`intercept.on` 与规则开关 |
 | 判红过多 | 调整 `dup.min`，再运行 `npm run status` 检查配置与状态 |
-| 配置未生效 | 检查插件目录下的 JSON；改动需等下一次 `session_start` |
+| 配置未生效 | 检查插件目录下的 JSON 与 `npm run status`；下一次相关钩子调用会重读 |
 | 签名被清理 | 调整 `signature.keepTurns` 或关闭 `signature.on` |

@@ -211,8 +211,7 @@ export function judgeThinking(text: any, patch: Partial<JudgeCfg> = {}) {
   // 那等于「处置自己制造了下一次判红」。
   // 2026-11-25 删掉思维链注入之后，新标记不再产生；这里留着是按行滤掉历史会话里的旧标记——
   // 旧数据不该让新判据判红，而滤一行的成本可以忽略。
-  const all = partitionLines(raw).filter((l) => !MARK_RE.test(l.t));
-  const lines = voteOf(all);
+  const lines = partitionLines(raw).filter((l) => l.kind === "vote" && !MARK_RE.test(l.t));
   // 整体判据先跑（2026-11-24 修）：它比 dup/inline 更准——不切分，一次扫描取最长匹配。
   // 原来放在它们之后，于是 31 行「做。」先被 dup 判红，run 永远轮不到。
   // 「更准的先判」不是效率问题：先判的那条决定了 ev 的形状，也就决定了处置怎么走。
