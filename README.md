@@ -37,7 +37,7 @@
 
 ## 代码模型
 
-语言判定在 `src/judges.ts` 的一次字符扫描中同时完成行投票和中英字符统计。判据、处置和配置分别由 `src/judges.ts`、`src/verdict.ts`、`src/config.ts` 提供。
+语言判定在 `src/judges.ts` 的一次字符扫描中同时完成行投票和中英字符统计。判据、处置和配置分别由 `src/judges.ts`、`src/verdict.ts`、`src/config.ts` 提供。`src/sentences.ts` 只在跳过清单非空时建立 Set，按行常数时间查找，并保留原始行号。
 
 ## 元理论
 

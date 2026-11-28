@@ -73,13 +73,12 @@ export const MARK_RE = new RegExp(
  */
 export function sentencesOf(text: any, skip: readonly string[] = []) {
   const out: { t: string; li: number }[] = [];
+  const skipSet = skip.length ? new Set(skip) : null;
   String(text || "").split("\n").forEach((ln: string, li: number) => {
     const t = ln.trim();
-    // 注入文案不算思考内容（自锁的另一半）：若不算，坍缩判据会把自己注入的提醒
-    // 当成退化来源，判红→再注入→再判红。
-    if (skip.length && skip.includes(t)) return;
-    // 处置标记也不算（防回灌的第二半）：折叠后的那一行会被模型读到、可能被抄。
-    // 抄来的标记如果计入统计，它自己就成了「一种句子」，越抄越多，等于回灌。
+    // 注入文案不算思考内容，避免判据把自己注入的提醒当成退化来源。
+    if (skipSet?.has(t)) return;
+    // 处置标记不算思考内容，避免后续判定回灌。
     if (MARK_RE.test(t)) return;
     const m = ln.match(SENT_RE) || [];
     for (const raw of m) {

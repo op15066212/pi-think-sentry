@@ -93,7 +93,7 @@ export const RULES: readonly Rule[] = [
 id: "dup", kind: "verdict", module: "features/dup.ts",
     prop: "同一行出现次数 ≥ dup.min 时判红",
     形成: "dup.min 在 src/defaults.ts（默认 4）",
-    引入: "node --experimental-strip-types --test test/dup.test.ts；期望 16 条全过、rc=0",
+    引入: "node --experimental-strip-types --test test/dup.test.ts；期望 18 条全过、rc=0",
     消去: "test/ 里 dup 用例与 ledger 回放算同一件事",
     反例: "四行都是「做。」：min=4 时判红",
   },

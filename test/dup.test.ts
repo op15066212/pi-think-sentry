@@ -8,6 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { judgeThinking, dupJudge, DUP_MIN } from "../src/judges.ts";
 import { stripDupLines } from "../src/cut.ts";
+import { sentencesOf } from "../src/sentences.ts";
 
 // 删行读的是判据的记录，测试也走同一条路：先判，再删。
 // 判据给的是《行、次数、行号》，删行只吃行号。
@@ -125,4 +126,19 @@ test("从后往前删：多个行号连删不会错位", () => {
 test("越界行号直接忽略，不抛不越删", () => {
   const t = "a\nb";
   assert.equal(stripDupLines(t, [5, -1, 99]), "a\nb");
+});
+test("skip 文本逐字匹配，跳过行仍保留后续原行号", () => {
+  const got = sentencesOf("正文。\n 注入。 \n保留。", ["注入。"]);
+  assert.deepEqual(got, [
+    { t: "正文。", li: 0 },
+    { t: "保留。", li: 2 },
+  ]);
+});
+
+test("skip 匹配区分大小写且不匹配行内子串", () => {
+  const got = sentencesOf("注入。\n前缀注入。\nINJECT.", ["注入。"]);
+  assert.deepEqual(got, [
+    { t: "前缀注入。", li: 1 },
+    { t: "INJECT.", li: 2 },
+  ]);
 });
